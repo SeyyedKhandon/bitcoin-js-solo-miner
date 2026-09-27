@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import { Worker } from 'worker_threads';
 import { MiningMethod } from './strategies.js';
+import { processMiningNotification } from './coinbase-decoder.js';
 import { getTargetFromNbits, getHashDifficulty } from '../lib/hash.js';
 import { Logger } from '../lib/logger.js';
 import { config } from '../config.js';
@@ -23,6 +24,7 @@ export class Miner extends EventEmitter {
     this.currentJob = null;
     this.poolDifficulty = 0;
     this.target = '';
+    this.blockHeader = null; // Real decoded block header info (height, difficulty, coinbase outputs)
     this.isMining = false; // Stays false until start() is called by the user
     this.jobsReceived = 0;
 
@@ -112,6 +114,12 @@ export class Miner extends EventEmitter {
     this.currentJob = job;
     this.poolDifficulty = poolDifficulty;
     this.target = getTargetFromNbits(job.nbits);
+
+    try {
+      this.blockHeader = processMiningNotification(job, job.extranonce1, job.extranonce2_size, config.workerName);
+    } catch (e) {
+      Logger.error(`Failed to decode block header info: ${e.message}`);
+    }
 
     if (this.isMining) {
       this._dispatchToWorkers();
@@ -205,7 +213,8 @@ export class Miner extends EventEmitter {
       currentJobId: this.currentJob ? this.currentJob.jobId : null,
       customNonce: this.customNonce,
       threads: this.totalThreads,
-      isMining: this.isMining
+      isMining: this.isMining,
+      blockHeader: this.blockHeader
     };
   }
 }

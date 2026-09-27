@@ -43,6 +43,55 @@ function formatNumber(num) {
     return new Intl.NumberFormat().format(num);
 }
 
+function diffSuffix(value) {
+    if (value == null || value <= 0) return '0';
+    const suffixes = ['', 'K', 'M', 'G', 'T', 'P', 'E'];
+    const power = Math.max(0, Math.floor(Math.log10(value) / 3));
+    const scaled = value / Math.pow(1000, power);
+    const suffix = suffixes[power] || '';
+    const space = suffix ? ' ' : '';
+    return power > 0 ? scaled.toFixed(2) + space + suffix : scaled.toFixed(0) + space + suffix;
+}
+
+function satsToBtc(satoshis) {
+    if (!satoshis) return '0 BTC';
+    return (satoshis / 100_000_000).toFixed(8) + ' BTC';
+}
+
+function renderBlockHeader(blockHeader) {
+    const heightEl = document.getElementById('val-block-height');
+    const diffEl = document.getElementById('val-block-difficulty');
+    const valueEl = document.getElementById('val-block-value');
+    const scriptsigEl = document.getElementById('val-block-scriptsig');
+    const outputsEl = document.getElementById('val-block-outputs');
+    const signalsEl = document.getElementById('val-block-signals');
+    if (!heightEl || !blockHeader) return;
+
+    heightEl.textContent = blockHeader.blockHeight;
+    diffEl.textContent = diffSuffix(blockHeader.networkDifficulty);
+    valueEl.textContent = satsToBtc(blockHeader.totalValueSatoshis);
+    scriptsigEl.textContent = blockHeader.scriptsig || '-';
+
+    outputsEl.innerHTML = '';
+    for (const output of blockHeader.outputs) {
+        const row = document.createElement('div');
+        const addr = document.createElement('strong');
+        addr.textContent = output.address + (output.isUserOutput ? ' ★' : '');
+        row.appendChild(addr);
+        if (output.valueSatoshis > 0) {
+            const value = document.createElement('span');
+            value.textContent = satsToBtc(output.valueSatoshis);
+            row.appendChild(value);
+        }
+        outputsEl.appendChild(row);
+    }
+
+    const signals = [];
+    if (blockHeader.bip54Signaling) signals.push('BIP-54');
+    if (blockHeader.bip110Signaling) signals.push('BIP-110');
+    signalsEl.textContent = signals.join(' ');
+}
+
 evtSource.onopen = () => {
     els.status.textContent = 'Connected & Mining';
     els.status.style.color = 'var(--accent)';
@@ -116,6 +165,11 @@ evtSource.onmessage = (event) => {
         els.bestEn1.textContent = data.bestHash.en1;
         els.bestEn2.textContent = data.bestHash.en2;
         els.bestNonce.textContent = data.bestHash.nonce;
+    }
+
+    // Update real Block Header info (decoded from the current job's coinbase tx)
+    if (data.blockHeader) {
+        renderBlockHeader(data.blockHeader);
     }
 };
 
