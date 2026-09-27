@@ -7,7 +7,7 @@ import { Miner } from './mining/miner.ts';
 import { Logger } from './lib/logger.ts';
 import { parseLatestChangelogEntry } from './lib/changelog.ts';
 import { createHttpServer } from './server/http-server.ts';
-import { attachWebSocketServer, broadcastJob } from './server/ws-server.ts';
+import { attachWebSocketServer, broadcastJob, broadcastStrategy } from './server/ws-server.ts';
 import type { MiningJob, ShareInfo } from './lib/types.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -41,7 +41,11 @@ const wss = attachWebSocketServer(server, { miner, stratum });
 stratum.on('job', (job: MiningJob, difficulty: number) => {
   if (job.clean_jobs) miner.interruptWorkers();
   miner.startNewJob(job, difficulty);
-  broadcastJob(wss, { ...job, target: miner.target }, difficulty);
+  broadcastJob(wss, { ...job, target: miner.target }, difficulty, miner.getAppliedStrategy());
+});
+
+miner.on('strategy', (strategy: { method: number; customNonce: number }) => {
+  broadcastStrategy(wss, strategy);
 });
 
 stratum.on('disconnected', () => {

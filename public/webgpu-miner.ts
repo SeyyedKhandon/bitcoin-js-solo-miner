@@ -1,5 +1,6 @@
 import { webgpuMinerShader } from './shader.js';
 import { calculateMerkleRoot, buildHeaderBase, hexToBytes, bytesToHex, doubleSha256 } from './bitcoin.js';
+import { MiningMethod, getExtranonce2, getStartNonce, isRandomMethod, methodName, resolveMethod } from './strategies.js';
 import type { BrowserJob } from './types.js';
 
 const WORKGROUP_SIZE = 64;
@@ -30,6 +31,10 @@ interface WebGPUMinerState {
     // extranonce2Counter/currentNonce behavior in mining/worker.ts.
     extranonce2: string;
     nonceBase: number;
+    /** Strategy pushed by the server (ALL_MODE already resolved). */
+    method: number;
+    customNonce: number;
+    extranonce2Counter: number;
 }
 
 const wgMinerState: WebGPUMinerState = {
@@ -50,8 +55,25 @@ const wgMinerState: WebGPUMinerState = {
     bindGroup: null,
     isHashing: false,
     extranonce2: '',
-    nonceBase: 0
+    nonceBase: 0,
+    method: MiningMethod.STANDARD,
+    customNonce: 0,
+    extranonce2Counter: 0
 };
+
+/** Adopts a strategy pushed by the server (ALL_MODE already resolved). */
+function applyStrategy(msg: { method?: number; customNonce?: number }): void {
+    if (typeof msg.method !== 'number') return;
+    const changed = msg.method !== wgMinerState.method;
+    wgMinerState.method = msg.method;
+    wgMinerState.customNonce = msg.customNonce ?? 0;
+    if (changed) {
+        console.log('WebGPU miner strategy ->', methodName(resolveMethod(msg.method)));
+        // Re-derive the sweep start and extranonce2 for the new strategy.
+        wgMinerState.extranonce2 = '';
+        wgMinerState.nonceBase = getStartNonce(resolveMethod(msg.method), wgMinerState.customNonce);
+    }
+}
 
 async function initWebGPU(): Promise<void> {
     if (!navigator.gpu) {
@@ -156,10 +178,16 @@ async function mineWebGPULoop(): Promise<void> {
         // Advance through the nonce space: NONCES_PER_DISPATCH new nonces
         // each dispatch. Once the 32-bit space is exhausted, roll a fresh
         // extranonce2 (changing the Merkle root) and start over at 0.
+        const method = resolveMethod(wgMinerState.method);
         if (!wgMinerState.extranonce2 || wgMinerState.nonceBase + NONCES_PER_DISPATCH > 0xFFFFFFFF) {
-            const extranonce2Bytes = crypto.getRandomValues(new Uint8Array(job.extranonce2_size || 8) as Uint8Array<ArrayBuffer>);
-            wgMinerState.extranonce2 = bytesToHex(extranonce2Bytes);
-            wgMinerState.nonceBase = 0;
+            if (wgMinerState.extranonce2) wgMinerState.extranonce2Counter++;
+            wgMinerState.extranonce2 = getExtranonce2(method, job.extranonce2_size || 8, wgMinerState.extranonce2Counter);
+            wgMinerState.nonceBase = getStartNonce(method, wgMinerState.customNonce);
+        } else if (isRandomMethod(method)) {
+            // These strategies re-pick where they look every dispatch rather
+            // than sweeping onward.
+            wgMinerState.extranonce2 = getExtranonce2(method, job.extranonce2_size || 8, wgMinerState.extranonce2Counter);
+            wgMinerState.nonceBase = getStartNonce(method, wgMinerState.customNonce);
         }
         const extranonce2 = wgMinerState.extranonce2;
         const nonceBase = wgMinerState.nonceBase;
@@ -294,10 +322,7 @@ async function mineWebGPULoop(): Promise<void> {
                 en1: job.extranonce1,
                 en2: extranonce2,
                 nonce: latestNonceHex || (nonceBase >>> 0).toString(16).padStart(8, '0'),
-                // Fixed scan strategy: a random extranonce2, then a
-                // sequential sweep of the nonce space in dispatch-sized
-                // blocks, rolling extranonce2 once the space is exhausted.
-                method: 'random EN2, sequential sweep'
+                method: methodName(method)
             }));
         }
 
@@ -338,12 +363,16 @@ export async function startWebGPUMining(): Promise<void> {
                 console.log("WebGPU miner received new job:", msg.job.jobId);
                 wgMinerState.job = msg.job;
                 wgMinerState.targetHex = msg.job.target || "000000000000000000021a420000000000000000000000000000000000000000"; // fallback
+                applyStrategy(msg);
                 // A new job means a new coinbase/Merkle root - reset nonce progress.
                 wgMinerState.extranonce2 = '';
-                wgMinerState.nonceBase = 0;
+                wgMinerState.extranonce2Counter = 0;
+                wgMinerState.nonceBase = getStartNonce(resolveMethod(wgMinerState.method), wgMinerState.customNonce);
                 if (wgMinerState.isMining) {
                     mineWebGPULoop();
                 }
+            } else if (msg.type === 'strategy') {
+                applyStrategy(msg);
             }
         } catch(e) {
             console.error("WS error:", e);

@@ -41,8 +41,13 @@ export function attachWebSocketServer(httpServer: Server, { miner, stratum }: At
       ws.send(JSON.stringify({
         type: 'job',
         job: { ...miner.currentJob, target: miner.target },
-        difficulty: miner.poolDifficulty
+        difficulty: miner.poolDifficulty,
+        ...miner.getAppliedStrategy()
       }));
+    } else {
+      // No job yet, but the miner should still start out on the right
+      // strategy rather than its own default.
+      ws.send(JSON.stringify({ type: 'strategy', ...miner.getAppliedStrategy() }));
     }
 
     ws.on('message', (raw: Buffer) => {
@@ -88,9 +93,26 @@ export function attachWebSocketServer(httpServer: Server, { miner, stratum }: At
   return wss;
 }
 
-/** Broadcasts a new pool job to every connected browser miner. */
-export function broadcastJob(wss: WebSocketServer, job: unknown, difficulty: number | null): void {
-  const message = JSON.stringify({ type: 'job', job, difficulty });
+/**
+ * Broadcasts a new pool job to every connected browser miner, along with the
+ * strategy to mine it with. ALL_MODE is resolved server-side so browser
+ * miners rotate in step with the worker threads.
+ */
+export function broadcastJob(
+  wss: WebSocketServer,
+  job: unknown,
+  difficulty: number | null,
+  strategy: { method: number; customNonce: number }
+): void {
+  const message = JSON.stringify({ type: 'job', job, difficulty, ...strategy });
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN) client.send(message);
+  }
+}
+
+/** Pushes a strategy change to browser miners mid-job. */
+export function broadcastStrategy(wss: WebSocketServer, strategy: { method: number; customNonce: number }): void {
+  const message = JSON.stringify({ type: 'strategy', ...strategy });
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) client.send(message);
   }

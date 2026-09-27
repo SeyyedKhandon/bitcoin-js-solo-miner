@@ -183,6 +183,22 @@ export class Miner extends EventEmitter {
     if (this.isMining && this.currentJob) {
       this._dispatchToWorkers();
     }
+
+    // Browser miners mine independently of the worker threads, so they need
+    // to be told about the change too - see broadcastStrategy in ws-server.
+    this.emit('strategy', this.getAppliedStrategy());
+  }
+
+  /**
+   * The concrete strategy currently in effect, with ALL_MODE resolved to
+   * whichever method it has rotated to. This is what the workers actually
+   * apply, and what browser miners are told to apply.
+   */
+  getAppliedStrategy(): { method: number; customNonce: number } {
+    return {
+      method: this.activeMethod === MiningMethod.ALL_MODE ? this.allModeIndex : this.activeMethod,
+      customNonce: this.customNonce
+    };
   }
 
   /** Records a new pool job. Only dispatches it to the workers if mining is already turned on. */

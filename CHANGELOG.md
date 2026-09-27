@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3 - 2026-09-28
+- The browser CPU and WebGPU miners now respect the selected mining strategy - previously they ignored the dropdown entirely and always used a random extranonce2, so only the Node CPU workers ever changed behaviour
+- Browser miners follow ALL_MODE's rotation in step with the server, and pick up strategy changes immediately instead of only on the next job
+- The deprecated INVERTED_VERSION/RANDOM_INVERTED strategies fall back to their non-inverting equivalents in the browser miners rather than producing shares the pool would reject
+
 ## 0.1.2 - 2026-09-28
 - Latest Hash and Best Hash now show which miner found the hash (Node CPU, Browser CPU or WebGPU) and the nonce-search strategy it was using at the time
 - Fixed Best Hash freezing on the first hash recorded - difficulties below 0.001 were truncated to exactly 0, so the comparison that picks the best hash could never tell two of them apart
