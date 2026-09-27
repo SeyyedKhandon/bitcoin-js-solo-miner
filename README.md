@@ -15,7 +15,17 @@ npm install
 npm start
 ```
 
-`npm start` compiles the browser dashboard's TypeScript into `public/`, then runs the backend directly from source. Open **http://localhost:8080**.
+`npm start` compiles the browser dashboard's TypeScript into `public/`, then runs the backend directly from source. On startup:
+
+```
+  ┌─────────────────────────────────────────────┐
+  │   Bitcoin JS Solo Miner running at:          │
+  │   http://localhost:8080                      │
+  │   Open it in a browser to mine via WebGPU    │
+  └─────────────────────────────────────────────┘
+```
+
+Open **http://localhost:8080**.
 
 Node CPU mining starts automatically on first load. Mining method, thread count, Stratum protocol, and strategy are saved to `localStorage` and restored on your next visit. The backend is a single shared process — these settings apply to all connected clients, not per-visitor.
 
@@ -25,7 +35,7 @@ Other scripts:
 
 ## Browser GPU mining
 
-`public/webgpu-miner.ts` runs the double-SHA256 nonce search on the GPU via [WebGPU](https://www.w3.org/TR/webgpu/), connecting to the server over a WebSocket for jobs and to report hashrate/shares. Requires a WebGPU-capable browser. `public/browser-miner.ts` is a CPU equivalent via the Web Crypto API — it reports real hashrate but, unlike the server-side miner, doesn't build a real Merkle root, so it can't submit valid shares.
+`public/webgpu-miner.ts` runs the double-SHA256 nonce search on the GPU via [WebGPU](https://www.w3.org/TR/webgpu/), connecting to the server over a WebSocket for jobs and to report hashrate/shares. Requires a WebGPU-capable browser. `public/browser-miner.ts` is a CPU equivalent via the Web Crypto API. Both build a real Merkle root and header (`public/bitcoin.ts`) and can submit genuine shares, same as the server-side miner.
 
 ## How Stratum mining works
 
