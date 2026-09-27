@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: bitcoin-js-solo-miner
+    runtime: node
+    plan: free
+    branch: main
+    buildCommand: npm ci && npm run build
+    startCommand: node index.ts
+    autoDeployTrigger: commit
+    healthCheckPath: /

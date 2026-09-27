@@ -41,6 +41,16 @@ The browser dashboard's TypeScript still needs a real `tsc` compile (`npm run bu
 
 The dashboard's Block Header panel decodes this same coinbase transaction for real (block height, miner tag, outputs, BIP-54/BIP-110 signaling) — ported from ESP-Miner's own `coinbase_decoder.c`, which runs this decode on real ASIC hardware.
 
+## Deploying
+
+This is a persistent Node.js process (a held-open TCP connection to the pool, worker threads, a WebSocket server) - it needs a host that runs a long-lived process, not static hosting or short-lived serverless functions. `render.yaml` is a ready-to-use [Render](https://render.com) blueprint:
+
+1. Push this repo to GitHub (already done if you're reading this from the repo).
+2. In the Render dashboard: **New > Blueprint**, connect the repo, and Render will read `render.yaml` and set everything up (build command, start command, Node version).
+3. Once deployed, your dashboard is live at `https://<service-name>.onrender.com`.
+
+Note: Render's **free** tier spins the service down after 15 minutes of inactivity and cold-starts it on the next request (30-60s delay) - the Stratum connection and any mining in progress stops when that happens. For a miner that actually stays connected and mining continuously, you'd want an always-on (paid) instance, there or elsewhere.
+
 ## Configuration
 
 Pool and mining settings live in `config.ts`. Pool host/port, mining strategy, and thread count can also be changed live from the dashboard, without restarting the server.

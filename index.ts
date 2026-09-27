@@ -9,7 +9,9 @@ import { attachWebSocketServer, broadcastJob } from './server/ws-server.ts';
 import type { MiningJob, ShareInfo } from './lib/types.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = 8080;
+// Render (and most PaaS hosts) assign the port to listen on via PORT;
+// falls back to 8080 for local development.
+const PORT = Number(process.env.PORT) || 8080;
 
 Logger.info('Starting Bitcoin JS Solo Miner...');
 
@@ -45,11 +47,14 @@ miner.on('share', (shareInfo: ShareInfo) => {
 miner.on('stats', broadcastStats);
 
 server.listen(PORT, () => {
-  const url = `http://localhost:${PORT}`;
+  // Render (and similar hosts) expose the service's real public URL via
+  // RENDER_EXTERNAL_URL; fall back to localhost for local development.
+  const url = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+  const pad = ' '.repeat(Math.max(0, 43 - url.length));
   console.log('');
   console.log('  ┌─────────────────────────────────────────────┐');
   console.log('  │   Bitcoin JS Solo Miner running at:          │');
-  console.log(`  │   ${url}${' '.repeat(43 - url.length)}│`);
+  console.log(`  │   ${url}${pad}│`);
   console.log('  │   Open it in a browser to mine via WebGPU    │');
   console.log('  └─────────────────────────────────────────────┘');
   console.log('');
