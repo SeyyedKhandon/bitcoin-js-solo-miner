@@ -23,7 +23,7 @@ npm start
   └─────────────────────────────────────────────┘
 ```
 
-Open **http://localhost:8080** to watch live hashrate, shares, and the best hash found this session, and to control pool, thread count, and mining strategy. Every field on the dashboard has a hover tooltip explaining what it means.
+Open **http://localhost:8080** to watch live hashrate, shares, and the best hash found this session, and to control pool, thread count, and mining strategy. Every field on the dashboard has a hover tooltip explaining what it means. On first load the dashboard starts Node CPU mining by default; after that, your choice of mining method(s), thread count, Stratum protocol, and strategy are saved to the browser's `localStorage` and reapplied automatically next time you open the page. Note the miner itself is one shared process, not per-visitor - these preferences reconfigure it for everyone currently connected, so if multiple people have the page open, whoever loads it last effectively wins.
 
 The browser dashboard's TypeScript still needs a real `tsc` compile (`npm run build`), since browsers can't run `.ts` directly - that's the one thing `npm start` builds before running. To type-check everything (backend included) without running anything, use `npm run typecheck`.
 

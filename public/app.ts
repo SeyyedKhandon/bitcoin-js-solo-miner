@@ -89,6 +89,51 @@ interface MinerStatsMessage {
     blockHeader: BlockHeaderInfo | null;
 }
 
+interface StoredPreferences {
+    nodeMining: boolean;
+    browserMining: boolean;
+    webgpuMining: boolean;
+    threads: number;
+    protocol: string;
+    strategy: number;
+    customNonce: number;
+}
+
+const PREFERENCES_KEY = 'bitcoinJsSoloMiner.preferences';
+
+// CPU mining (the Node.js server-side miner) is the default running method
+// on a first-ever visit; the browser/WebGPU miners are opt-in extras.
+const DEFAULT_PREFERENCES: StoredPreferences = {
+    nodeMining: true,
+    browserMining: false,
+    webgpuMining: false,
+    threads: 1,
+    protocol: 'SV1',
+    strategy: 0,
+    customNonce: 0,
+};
+
+function loadPreferences(): StoredPreferences {
+    try {
+        const raw = localStorage.getItem(PREFERENCES_KEY);
+        if (!raw) return { ...DEFAULT_PREFERENCES };
+        return { ...DEFAULT_PREFERENCES, ...JSON.parse(raw) };
+    } catch {
+        return { ...DEFAULT_PREFERENCES };
+    }
+}
+
+function savePreference<K extends keyof StoredPreferences>(key: K, value: StoredPreferences[K]): void {
+    try {
+        const current = loadPreferences();
+        current[key] = value;
+        localStorage.setItem(PREFERENCES_KEY, JSON.stringify(current));
+    } catch {
+        // localStorage unavailable (private browsing, storage full, etc.) -
+        // preferences just won't persist across reloads.
+    }
+}
+
 function formatNumber(num: number): string {
     return new Intl.NumberFormat().format(num);
 }
@@ -246,11 +291,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const strategySelect = document.getElementById('strategy-select') as HTMLSelectElement | null;
     const customNonceGroup = document.getElementById('custom-nonce-group') as HTMLElement | null;
     const customNonceInput = document.getElementById('custom-nonce-input') as HTMLInputElement | null;
+    const toggleBrowserMiningBtn = document.getElementById('toggle-browser-mining') as HTMLButtonElement | null;
+    const toggleWebGPUMiningBtn = document.getElementById('toggle-webgpu-mining') as HTMLButtonElement | null;
+    const toggleNodeMiningBtn = document.getElementById('toggle-node-mining') as HTMLButtonElement | null;
 
     function sendStrategy(): void {
         if (!strategySelect || !customNonceInput) return;
         const method = parseInt(strategySelect.value, 10);
         const customNonce = parseInt(customNonceInput.value, 10) || 0;
+        savePreference('strategy', method);
+        savePreference('customNonce', customNonce);
         fetch('/api/strategy', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -258,39 +308,87 @@ document.addEventListener('DOMContentLoaded', () => {
         }).catch(err => console.error("Failed to update strategy", err));
     }
 
-    if (els.protocolSelect) {
-        els.protocolSelect.addEventListener('change', async () => {
-            const protocol = els.protocolSelect!.value;
-            // Get host and port from inputs, fallback to ckpool if missing (but do not overwrite active config with a hardcode)
-            const hostInput = document.getElementById('pool-host-input') as HTMLInputElement | null;
-            const portInput = document.getElementById('pool-port-input') as HTMLInputElement | null;
-            const host = hostInput && hostInput.value ? hostInput.value : "eusolo.ckpool.org";
-            const port = portInput && portInput.value ? portInput.value : 3333;
+    async function setProtocol(protocol: string): Promise<void> {
+        // Get host and port from inputs, fallback to ckpool if missing (but do not overwrite active config with a hardcode)
+        const hostInput = document.getElementById('pool-host-input') as HTMLInputElement | null;
+        const portInput = document.getElementById('pool-port-input') as HTMLInputElement | null;
+        const host = hostInput && hostInput.value ? hostInput.value : "eusolo.ckpool.org";
+        const port = portInput && portInput.value ? portInput.value : 3333;
 
-            try {
-                await fetch('/api/pool', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ host, port, protocol })
-                });
-            } catch (err) {
-                console.error(err);
-            }
+        try {
+            await fetch('/api/pool', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ host, port, protocol })
+            });
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    async function setThreads(threads: number): Promise<void> {
+        try {
+            await fetch('/api/threads', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ threads })
+            });
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    async function setNodeMining(on: boolean): Promise<void> {
+        try {
+            await fetch('/api/miner-toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ state: on ? 'start' : 'stop' })
+            });
+        } catch (err) {
+            console.error("Failed to toggle miner", err);
+        }
+    }
+
+    function setBrowserMining(on: boolean): void {
+        if (!toggleBrowserMiningBtn) return;
+        if (on) {
+            window.startBrowserMining();
+            toggleBrowserMiningBtn.textContent = 'Stop Browser CPU Mining';
+            toggleBrowserMiningBtn.style.background = '#ff5f56';
+        } else {
+            window.stopBrowserMining();
+            toggleBrowserMiningBtn.textContent = 'Start Browser CPU Mining';
+            toggleBrowserMiningBtn.style.background = 'var(--accent)';
+        }
+    }
+
+    function setWebGPUMining(on: boolean): void {
+        if (!toggleWebGPUMiningBtn) return;
+        if (on) {
+            window.startWebGPUMining();
+            toggleWebGPUMiningBtn.textContent = 'Stop WebGPU Mining';
+            toggleWebGPUMiningBtn.style.background = '#ff5f56';
+        } else {
+            window.stopWebGPUMining();
+            toggleWebGPUMiningBtn.textContent = 'Start WebGPU Mining';
+            toggleWebGPUMiningBtn.style.background = '#61dafb';
+        }
+    }
+
+    if (els.protocolSelect) {
+        els.protocolSelect.addEventListener('change', () => {
+            const protocol = els.protocolSelect!.value;
+            savePreference('protocol', protocol);
+            setProtocol(protocol);
         });
     }
 
     if (els.threadsSelect) {
-        els.threadsSelect.addEventListener('change', async (e) => {
+        els.threadsSelect.addEventListener('change', (e) => {
             const threads = parseInt((e.target as HTMLSelectElement).value, 10);
-            try {
-                await fetch('/api/threads', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ threads })
-                });
-            } catch (err) {
-                console.error(err);
-            }
+            savePreference('threads', threads);
+            setThreads(threads);
         });
     }
 
@@ -309,52 +407,56 @@ document.addEventListener('DOMContentLoaded', () => {
         customNonceInput.addEventListener('change', sendStrategy);
     }
 
-    const toggleBrowserMiningBtn = document.getElementById('toggle-browser-mining') as HTMLButtonElement | null;
+    let isBrowserMining = false;
     if (toggleBrowserMiningBtn) {
-        let isBrowserMining = false;
         toggleBrowserMiningBtn.addEventListener('click', () => {
-            if (isBrowserMining) {
-                window.stopBrowserMining();
-                isBrowserMining = false;
-                toggleBrowserMiningBtn.textContent = 'Start Browser CPU Mining';
-                toggleBrowserMiningBtn.style.background = 'var(--accent)';
-            } else {
-                window.startBrowserMining();
-                isBrowserMining = true;
-                toggleBrowserMiningBtn.textContent = 'Stop Browser CPU Mining';
-                toggleBrowserMiningBtn.style.background = '#ff5f56';
-            }
+            isBrowserMining = !isBrowserMining;
+            savePreference('browserMining', isBrowserMining);
+            setBrowserMining(isBrowserMining);
         });
     }
 
-    const toggleWebGPUMiningBtn = document.getElementById('toggle-webgpu-mining') as HTMLButtonElement | null;
+    let isWebGPUMining = false;
     if (toggleWebGPUMiningBtn) {
-        let isWebGPUMining = false;
         toggleWebGPUMiningBtn.addEventListener('click', () => {
-            if (isWebGPUMining) {
-                window.stopWebGPUMining();
-                isWebGPUMining = false;
-                toggleWebGPUMiningBtn.textContent = 'Start WebGPU Mining';
-                toggleWebGPUMiningBtn.style.background = '#61dafb';
-            } else {
-                window.startWebGPUMining();
-                isWebGPUMining = true;
-                toggleWebGPUMiningBtn.textContent = 'Stop WebGPU Mining';
-                toggleWebGPUMiningBtn.style.background = '#ff5f56';
-            }
+            isWebGPUMining = !isWebGPUMining;
+            savePreference('webgpuMining', isWebGPUMining);
+            setWebGPUMining(isWebGPUMining);
         });
     }
 
-    const toggleNodeMiningBtn = document.getElementById('toggle-node-mining') as HTMLButtonElement | null;
     if (toggleNodeMiningBtn) {
         toggleNodeMiningBtn.addEventListener('click', () => {
-            const isMining = (toggleNodeMiningBtn.textContent || '').includes('Stop');
-            const state = isMining ? 'stop' : 'start';
-            fetch('/api/miner-toggle', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ state })
-            }).catch(err => console.error("Failed to toggle miner", err));
+            const isCurrentlyMining = (toggleNodeMiningBtn.textContent || '').includes('Stop');
+            savePreference('nodeMining', !isCurrentlyMining);
+            setNodeMining(!isCurrentlyMining);
         });
+    }
+
+    // Apply saved (or default) preferences once, on first render. CPU mining
+    // (the Node.js server-side miner) defaults to on for a first-ever visit;
+    // everything else defaults to off/unset until the user changes it.
+    const prefs = loadPreferences();
+
+    if (els.threadsSelect) els.threadsSelect.value = String(prefs.threads);
+    setThreads(prefs.threads);
+
+    if (els.protocolSelect) els.protocolSelect.value = prefs.protocol;
+    setProtocol(prefs.protocol);
+
+    if (strategySelect) strategySelect.value = String(prefs.strategy);
+    if (customNonceInput) customNonceInput.value = String(prefs.customNonce);
+    if (customNonceGroup) customNonceGroup.style.display = prefs.strategy === 9 ? "block" : "none";
+    sendStrategy();
+
+    setNodeMining(prefs.nodeMining);
+
+    if (prefs.browserMining) {
+        isBrowserMining = true;
+        setBrowserMining(true);
+    }
+    if (prefs.webgpuMining) {
+        isWebGPUMining = true;
+        setWebGPUMining(true);
     }
 });
