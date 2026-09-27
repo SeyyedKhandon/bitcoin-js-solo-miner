@@ -1,6 +1,5 @@
 import { EventEmitter } from 'events';
 import { Worker } from 'worker_threads';
-import { fileURLToPath } from 'url';
 import { MiningMethod } from './strategies.js';
 import { getTargetFromNbits, getHashDifficulty } from '../lib/hash.js';
 import { Logger } from '../lib/logger.js';
@@ -10,7 +9,9 @@ const workerUrl = new URL('./worker.js', import.meta.url);
 
 /**
  * Coordinates a pool of CPU worker threads, tracks hashrate/share stats,
- * and dispatches each new pool job to the workers.
+ * and dispatches pool jobs to the workers. Mining stays off until start()
+ * is called explicitly - receiving a job only records it, so the server
+ * doesn't spin up CPU mining on its own the moment it connects to a pool.
  */
 export class Miner extends EventEmitter {
   constructor() {
@@ -22,7 +23,7 @@ export class Miner extends EventEmitter {
     this.currentJob = null;
     this.poolDifficulty = 0;
     this.target = '';
-    this.isMining = false;
+    this.isMining = false; // Stays false until start() is called by the user
     this.jobsReceived = 0;
 
     this.totalThreads = config.threads || 1;
@@ -91,7 +92,7 @@ export class Miner extends EventEmitter {
     this.totalThreads = n;
     this.initWorkers();
     if (this.isMining && this.currentJob) {
-      this.startNewJob(this.currentJob, this.poolDifficulty);
+      this._dispatchToWorkers();
     }
   }
 
@@ -101,23 +102,50 @@ export class Miner extends EventEmitter {
     Logger.info(`Mining strategy updated to method ${method} (Custom Nonce: ${customNonce})`);
 
     if (this.isMining && this.currentJob) {
-      this.startNewJob(this.currentJob, this.poolDifficulty);
+      this._dispatchToWorkers();
     }
   }
 
+  /** Records a new pool job. Only dispatches it to the workers if mining is already turned on. */
   startNewJob(job, poolDifficulty) {
     this.jobsReceived++;
     this.currentJob = job;
     this.poolDifficulty = poolDifficulty;
     this.target = getTargetFromNbits(job.nbits);
-    this.isMining = true;
 
+    if (this.isMining) {
+      this._dispatchToWorkers();
+    }
+  }
+
+  /** Turns CPU mining on and starts hashing the current job, if one has been received yet. */
+  start() {
+    this.isMining = true;
+    if (this.currentJob) {
+      this._dispatchToWorkers();
+    }
+  }
+
+  /** Turns CPU mining off. */
+  stop() {
+    this.isMining = false;
+    this.interruptWorkers();
+  }
+
+  /** Tells the workers to abandon whatever they're hashing, without changing the on/off state. */
+  interruptWorkers() {
+    for (const w of this.workers) {
+      w.postMessage({ type: 'stop' });
+    }
+  }
+
+  _dispatchToWorkers() {
     if (this.activeMethod === MiningMethod.ALL_MODE) {
       this.allModeIndex++;
       if (this.allModeIndex > 12) this.allModeIndex = 1; // 1 is STANDARD; skip 0 (ALL_MODE itself)
     }
 
-    Logger.info(`Starting job ${job.jobId} | Target: ${this.target}`);
+    Logger.info(`Starting job ${this.currentJob.jobId} | Target: ${this.target}`);
 
     for (let i = 0; i < this.workers.length; i++) {
       this.workers[i].postMessage({
@@ -133,13 +161,6 @@ export class Miner extends EventEmitter {
           totalThreads: this.totalThreads
         }
       });
-    }
-  }
-
-  stop() {
-    this.isMining = false;
-    for (const w of this.workers) {
-      w.postMessage({ type: 'stop' });
     }
   }
 

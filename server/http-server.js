@@ -81,8 +81,8 @@ export function createHttpServer({ miner, stratum, config, publicDir }) {
       return readJsonBody(req, res, (payload) => {
         if (payload.state === 'stop') {
           miner.stop();
-        } else if (miner.currentJob) {
-          miner.startNewJob(miner.currentJob, miner.poolDifficulty);
+        } else {
+          miner.start();
         }
         return { state: payload.state, isMining: miner.isMining };
       });

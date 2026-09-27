@@ -25,13 +25,13 @@ const { server, broadcastStats } = createHttpServer({
 const wss = attachWebSocketServer(server, { miner, stratum });
 
 stratum.on('job', (job, difficulty) => {
-  if (job.clean_jobs) miner.stop();
+  if (job.clean_jobs) miner.interruptWorkers();
   miner.startNewJob(job, difficulty);
   broadcastJob(wss, { ...job, target: miner.target }, difficulty);
 });
 
 stratum.on('disconnected', () => {
-  miner.stop();
+  miner.interruptWorkers();
   Logger.info('Reconnecting in 5 seconds...');
   setTimeout(() => stratum.connect(), 5000);
 });
