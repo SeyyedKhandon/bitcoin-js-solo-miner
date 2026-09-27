@@ -125,8 +125,17 @@ function mineChunk(): void {
   const isRandomMethod = RANDOM_METHODS.includes(appliedMethod);
   if (currentNonce > 0 && !isRandomMethod) nonce = currentNonce;
 
-  // Block headers are stored little-endian; byte-swap each 4-byte field
+  // Fields coming straight from the pool (version, prevhash, ntime, nbits)
+  // arrive as big-endian-looking hex text and need a per-4-byte-word swap to
+  // become the little-endian bytes a block header requires. The merkle root
+  // is different: our own folding math (double-SHA256, no reversal) already
+  // produces it in the exact raw byte order the header needs, so swapping it
+  // too would corrupt it. Verified end-to-end against a real mined block's
+  // actual header/hash - skip the merkle root's byte range here.
+  const MERKLE_ROOT_START = 36; // version(4) + prevhash(32)
+  const MERKLE_ROOT_END = 68;   // + merkleRoot(32)
   for (let i = 0; i < baseHeaderBuf.length; i += 4) {
+    if (i >= MERKLE_ROOT_START && i < MERKLE_ROOT_END) continue;
     let tmp = baseHeaderBuf[i];
     baseHeaderBuf[i] = baseHeaderBuf[i + 3];
     baseHeaderBuf[i + 3] = tmp;
