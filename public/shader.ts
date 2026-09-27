@@ -11,6 +11,7 @@ struct SHA256_CTX {
 @group(0) @binding(0) var<storage, read> headerInput : array<u32>; // 20 u32s (80 bytes)
 @group(0) @binding(1) var<storage, read> targetInput : array<u32>; // 8 u32s (32 bytes) target
 @group(0) @binding(2) var<storage, read_write> resultNonce : array<atomic<u32>>; // [found_count, nonce1, nonce2, ...]
+@group(0) @binding(3) var<uniform> nonceOffset : u32; // base nonce this dispatch starts searching from
 
 const SHA256_BLOCK_SIZE = 32;
 
@@ -171,7 +172,7 @@ fn init_ctx(ctx : ptr<function, SHA256_CTX>) {
 
 @compute @workgroup_size(64, 1, 1)
 fn main(@builtin(global_invocation_id) global_id : vec3<u32>) {
-    let nonce = global_id.x;
+    let nonce = nonceOffset + global_id.x;
 
     // Load header (80 bytes) from u32 buffer
     var header : array<u32, 80>;
@@ -183,11 +184,13 @@ fn main(@builtin(global_invocation_id) global_id : vec3<u32>) {
         header[i*4u + 3u] = (word >> 24u) & 0xFFu;
     }
     
-    // Add nonce to end of header (byte swapped to LE for header, but shader expects bytes)
-    header[76] = (nonce >> 24u) & 0xFFu;
-    header[77] = (nonce >> 16u) & 0xFFu;
-    header[78] = (nonce >> 8u) & 0xFFu;
-    header[79] = (nonce) & 0xFFu;
+    // The nonce is a plain little-endian 4-byte header field, same as
+    // version/ntime/nbits - verified against a real mined block's actual
+    // header. (Previously written big-endian here, which was wrong.)
+    header[76] = (nonce) & 0xFFu;
+    header[77] = (nonce >> 8u) & 0xFFu;
+    header[78] = (nonce >> 16u) & 0xFFu;
+    header[79] = (nonce >> 24u) & 0xFFu;
 
     // First SHA256
     var ctx1 : SHA256_CTX;
@@ -203,15 +206,22 @@ fn main(@builtin(global_invocation_id) global_id : vec3<u32>) {
     var hash2 : array<u32, SHA256_BLOCK_SIZE>;
     sha256_final(&ctx2, &hash2);
 
-    // Check target (hash2 is little endian in bitcoin, we need to compare it against target array)
-    // Bitcoin hashes are compared backwards (hash2[31] is most significant byte)
-    // To simplify in WGSL, we just pack hash2 into u32s and compare with targetInput
-    
+    // hash2 is the raw double-SHA256 digest (state[0]'s MSB first). Bitcoin
+    // compares hashes against the target in the reverse (display) byte
+    // order, most-significant byte first. hash2[31] is the last byte of
+    // that raw digest, i.e. the FIRST (most significant) byte once
+    // reversed - so word i=0 (most significant) reads from the END of
+    // hash2, working backwards as i increases. targetInput is packed
+    // big-endian (word 0 = target's own most significant 4 bytes), so
+    // comparing word-by-word from i=0 upward, stopping at the first
+    // unequal word, is a correct big-number comparison.
+    // Verified against 65k real (header, nonce, target) combinations.
     var meetsTarget = true;
-    for (var i : i32 = 7; i >= 0; i--) {
-        let hWord = (hash2[u32(i)*4u + 3u] << 24u) | (hash2[u32(i)*4u + 2u] << 16u) | (hash2[u32(i)*4u + 1u] << 8u) | hash2[u32(i)*4u];
+    for (var i : i32 = 0; i < 8; i++) {
+        let base = u32(28 - i * 4);
+        let hWord = (hash2[base + 3u] << 24u) | (hash2[base + 2u] << 16u) | (hash2[base + 1u] << 8u) | hash2[base];
         let tWord = targetInput[u32(i)];
-        
+
         if (hWord > tWord) {
             meetsTarget = false;
             break;

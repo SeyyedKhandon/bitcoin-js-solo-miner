@@ -1,68 +1,32 @@
-// No import statement here on purpose: this file is loaded as a classic
-// (non-module) <script>, and any import/export - even type-only - would
-// make TypeScript emit an 'export {}' marker that throws a SyntaxError in
-// that context. Duplicating this tiny type locally avoids that.
-interface BrowserJob {
-    jobId: string;
-    prevhash: string;
-    coinb1: string;
-    coinb2: string;
-    merkle_branch: string[];
-    version: string;
-    nbits: string;
-    ntime: string;
-    clean_jobs: boolean;
-    extranonce1: string;
-    extranonce2_size: number;
-    target?: string;
-}
+import { calculateMerkleRoot, buildHeaderBase, bytesToHex } from './bitcoin.js';
+import type { BrowserJob } from './types.js';
 
 interface MinerState {
     isMining: boolean;
     job: BrowserJob | null;
-    target: string;
-    difficulty: number;
     ws: WebSocket | null;
     hashCount: number;
-    startTime: number;
 }
 
 const minerState: MinerState = {
     isMining: false,
     job: null,
-    target: '',
-    difficulty: 0,
     ws: null,
     hashCount: 0,
-    startTime: 0
 };
 
-// Web Crypto API is CPU bound, but we do this to show the browser mining architecture.
-// A true WebGPU implementation would replace this function.
-async function hashDoubleSha256(buffer: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
-    const hash1 = await crypto.subtle.digest('SHA-256', buffer);
-    const hash2 = await crypto.subtle.digest('SHA-256', hash1);
-    return new Uint8Array(hash2);
-}
-
 function hexToBytes(hex: string): Uint8Array {
-    let bytes = new Uint8Array(hex.length / 2);
+    const bytes = new Uint8Array(hex.length / 2);
     for (let i = 0; i < bytes.length; i++) {
         bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
     }
     return bytes;
 }
 
-function bytesToHex(bytes: Uint8Array): string {
-    let hex = '';
-    for (let i = 0; i < bytes.length; i++) {
-        hex += bytes[i].toString(16).padStart(2, '0');
-    }
-    return hex;
-}
-
-function reverseBytes(hex: string): string {
-    return bytesToHex(hexToBytes(hex).reverse());
+async function doubleSha256(buffer: Uint8Array): Promise<Uint8Array> {
+    const hash1 = await crypto.subtle.digest('SHA-256', buffer as BufferSource);
+    const hash2 = await crypto.subtle.digest('SHA-256', hash1);
+    return new Uint8Array(hash2);
 }
 
 async function mineLoop(): Promise<void> {
@@ -70,26 +34,18 @@ async function mineLoop(): Promise<void> {
 
     const job = minerState.job;
 
-    // Simplification for the mock: just pick a random extranonce2 and nonce
     const extranonce2Bytes = crypto.getRandomValues(new Uint8Array(job.extranonce2_size) as Uint8Array<ArrayBuffer>);
     const extranonce2 = bytesToHex(extranonce2Bytes);
 
-    // We would calculate the merkle root properly here
-    // For the sake of this mock browser miner architecture, we will just construct a dummy header
-    // In reality, this requires full merkle branch hashing
-    const headerHex = job.version + job.prevhash + "0000000000000000000000000000000000000000000000000000000000000000" + job.ntime + job.nbits + "00000000";
-    const headerBytes = hexToBytes(headerHex);
+    // Real Merkle root and real header, built the same verified way the
+    // server-side worker does it - see mining/worker.ts.
+    const merkleRoot = await calculateMerkleRoot(job.coinb1, job.extranonce1, extranonce2, job.coinb2, job.merkle_branch);
+    const headerBase = buildHeaderBase(job.version, job.prevhash, bytesToHex(merkleRoot), job.ntime, job.nbits);
 
-    // Byte swap for endianness (simplified)
-    const swappedHeader = new Uint8Array(80);
-    for (let i = 0; i < 80; i += 4) {
-        swappedHeader[i] = headerBytes[i+3];
-        swappedHeader[i+1] = headerBytes[i+2];
-        swappedHeader[i+2] = headerBytes[i+1];
-        swappedHeader[i+3] = headerBytes[i];
-    }
+    const header = new Uint8Array(80);
+    header.set(headerBase, 0);
 
-    const nonceOffset = 76;
+    const target = job.target ? BigInt(`0x${job.target}`) : null;
     let nonce = Math.floor(Math.random() * 0xFFFFFFFF);
     let latestHash: string | null = null;
     let latestNonce = nonce;
@@ -97,17 +53,40 @@ async function mineLoop(): Promise<void> {
     for (let i = 0; i < 100; i++) {
         if (!minerState.isMining) break;
 
-        swappedHeader[nonceOffset] = (nonce >>> 24) & 0xFF;
-        swappedHeader[nonceOffset + 1] = (nonce >>> 16) & 0xFF;
-        swappedHeader[nonceOffset + 2] = (nonce >>> 8) & 0xFF;
-        swappedHeader[nonceOffset + 3] = nonce & 0xFF;
+        header[76] = (nonce >>> 24) & 0xFF;
+        header[77] = (nonce >>> 16) & 0xFF;
+        header[78] = (nonce >>> 8) & 0xFF;
+        header[79] = nonce & 0xFF;
 
-        const resultBytes = await hashDoubleSha256(swappedHeader);
-        latestHash = reverseBytes(bytesToHex(resultBytes));
+        const resultBytes = await doubleSha256(header);
+        const hashHex = bytesToHex(resultBytes.slice().reverse());
+        latestHash = hashHex;
         latestNonce = nonce;
 
+        if (target !== null && BigInt(`0x${hashHex}`) <= target) {
+            const nonceBuffer = new Uint8Array(4);
+            nonceBuffer[0] = (nonce >>> 24) & 0xFF;
+            nonceBuffer[1] = (nonce >>> 16) & 0xFF;
+            nonceBuffer[2] = (nonce >>> 8) & 0xFF;
+            nonceBuffer[3] = nonce & 0xFF;
+
+            if (minerState.ws && minerState.ws.readyState === WebSocket.OPEN) {
+                minerState.ws.send(JSON.stringify({
+                    type: 'share',
+                    source: 'browser-cpu',
+                    shareInfo: {
+                        jobId: job.jobId,
+                        extranonce2,
+                        ntime: job.ntime,
+                        nonce: bytesToHex(nonceBuffer),
+                        hash: hashHex
+                    }
+                }));
+            }
+        }
+
         minerState.hashCount++;
-        nonce++;
+        nonce = (nonce + 1) >>> 0;
     }
 
     if (minerState.ws && minerState.ws.readyState === WebSocket.OPEN) {
@@ -130,8 +109,7 @@ function startBrowserMining(): void {
     if (minerState.isMining) return;
     minerState.isMining = true;
 
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    minerState.ws = new WebSocket(`${wsProtocol}//${window.location.host}`);
+    minerState.ws = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`);
 
     minerState.ws.onmessage = (event) => {
         try {
@@ -139,7 +117,6 @@ function startBrowserMining(): void {
             if (msg.type === 'job') {
                 console.log("Browser miner received new job:", msg.job.jobId);
                 minerState.job = msg.job;
-                minerState.difficulty = msg.difficulty;
                 if (minerState.isMining) {
                     mineLoop();
                 }
@@ -166,6 +143,5 @@ function stopBrowserMining(): void {
     console.log("Browser mining stopped.");
 }
 
-// Export to window
 window.startBrowserMining = startBrowserMining;
 window.stopBrowserMining = stopBrowserMining;

@@ -1,5 +1,10 @@
 import { webgpuMinerShader } from './shader.js';
+import { calculateMerkleRoot, buildHeaderBase, hexToBytes, bytesToHex, doubleSha256 } from './bitcoin.js';
 import type { BrowserJob } from './types.js';
+
+const WORKGROUP_SIZE = 64;
+const NUM_WORKGROUPS = 10000;
+const NONCES_PER_DISPATCH = WORKGROUP_SIZE * NUM_WORKGROUPS; // 640,000
 
 interface WebGPUMinerState {
     isMining: boolean;
@@ -13,9 +18,16 @@ interface WebGPUMinerState {
     targetBuffer: GPUBuffer | null;
     resultBuffer: GPUBuffer | null;
     resultReadBuffer: GPUBuffer | null;
+    nonceOffsetBuffer: GPUBuffer | null;
     bindGroup: GPUBindGroup | null;
-    nonceOffset: number;
     isHashing: boolean;
+    // Nonce-space progress for the current job: which 640k-nonce slice
+    // we're on, and which extranonce2 that's under. When the 32-bit nonce
+    // space under the current extranonce2 is exhausted, extranonce2
+    // advances and nonceBase resets - mirroring the CPU worker's
+    // extranonce2Counter/currentNonce behavior in mining/worker.ts.
+    extranonce2: string;
+    nonceBase: number;
 }
 
 const wgMinerState: WebGPUMinerState = {
@@ -30,26 +42,12 @@ const wgMinerState: WebGPUMinerState = {
     targetBuffer: null,
     resultBuffer: null,
     resultReadBuffer: null,
+    nonceOffsetBuffer: null,
     bindGroup: null,
-    nonceOffset: 0,
-    isHashing: false
+    isHashing: false,
+    extranonce2: '',
+    nonceBase: 0
 };
-
-function hexToBytes(hex: string): Uint8Array {
-    let bytes = new Uint8Array(hex.length / 2);
-    for (let i = 0; i < bytes.length; i++) {
-        bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
-    }
-    return bytes;
-}
-
-function bytesToHex(bytes: Uint8Array): string {
-    let hex = '';
-    for (let i = 0; i < bytes.length; i++) {
-        hex += bytes[i].toString(16).padStart(2, '0');
-    }
-    return hex;
-}
 
 async function initWebGPU(): Promise<void> {
     if (!navigator.gpu) {
@@ -76,7 +74,6 @@ async function initWebGPU(): Promise<void> {
         },
     });
 
-    // Buffers
     wgMinerState.headerBuffer = device.createBuffer({
         size: 20 * 4, // 80 bytes (20 u32s)
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -97,14 +94,38 @@ async function initWebGPU(): Promise<void> {
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
 
+    wgMinerState.nonceOffsetBuffer = device.createBuffer({
+        size: 4, // one u32
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
     wgMinerState.bindGroup = device.createBindGroup({
         layout: wgMinerState.pipeline.getBindGroupLayout(0),
         entries: [
             { binding: 0, resource: { buffer: wgMinerState.headerBuffer } },
             { binding: 1, resource: { buffer: wgMinerState.targetBuffer } },
             { binding: 2, resource: { buffer: wgMinerState.resultBuffer } },
+            { binding: 3, resource: { buffer: wgMinerState.nonceOffsetBuffer } },
         ],
     });
+}
+
+/** Packs header bytes into u32s matching the shader's unpack (byte 0 of each word = LSB). */
+function packHeaderU32(header: Uint8Array): Uint32Array {
+    const words = new Uint32Array(20);
+    for (let i = 0; i < 19; i++) {
+        words[i] = (header[i * 4 + 3] << 24) | (header[i * 4 + 2] << 16) | (header[i * 4 + 1] << 8) | header[i * 4];
+    }
+    return words;
+}
+
+/** Packs the target in natural big-endian order (word 0 = target's own most significant bytes). */
+function packTargetU32(target: Uint8Array): Uint32Array {
+    const words = new Uint32Array(8);
+    for (let i = 0; i < 8; i++) {
+        words[i] = (target[i * 4] << 24) | (target[i * 4 + 1] << 16) | (target[i * 4 + 2] << 8) | target[i * 4 + 3];
+    }
+    return words;
 }
 
 async function mineWebGPULoop(): Promise<void> {
@@ -114,47 +135,34 @@ async function mineWebGPULoop(): Promise<void> {
 
         const device = wgMinerState.device;
         const job = wgMinerState.job;
-        const extranonce2Bytes = crypto.getRandomValues(new Uint8Array(job.extranonce2_size || 8) as Uint8Array<ArrayBuffer>);
-        const extranonce2 = bytesToHex(extranonce2Bytes);
 
-        // Mock header construction
-        const headerHex = job.version + job.prevhash + "0000000000000000000000000000000000000000000000000000000000000000" + job.ntime + job.nbits + "00000000";
-        const headerBytes = hexToBytes(headerHex);
-
-        // Byte swap for endianness (simplified, bitcoin uses little endian fields)
-        const swappedHeader = new Uint8Array(80);
-        for (let i = 0; i < 80; i += 4) {
-            swappedHeader[i] = headerBytes[i+3];
-            swappedHeader[i+1] = headerBytes[i+2];
-            swappedHeader[i+2] = headerBytes[i+1];
-            swappedHeader[i+3] = headerBytes[i];
+        // Advance through the nonce space: NONCES_PER_DISPATCH new nonces
+        // each dispatch. Once the 32-bit space is exhausted, roll a fresh
+        // extranonce2 (changing the Merkle root) and start over at 0.
+        if (!wgMinerState.extranonce2 || wgMinerState.nonceBase + NONCES_PER_DISPATCH > 0xFFFFFFFF) {
+            const extranonce2Bytes = crypto.getRandomValues(new Uint8Array(job.extranonce2_size || 8) as Uint8Array<ArrayBuffer>);
+            wgMinerState.extranonce2 = bytesToHex(extranonce2Bytes);
+            wgMinerState.nonceBase = 0;
         }
+        const extranonce2 = wgMinerState.extranonce2;
+        const nonceBase = wgMinerState.nonceBase;
 
-        // Convert to u32 array for WebGPU
-        const headerU32 = new Uint32Array(20);
-        for (let i=0; i<19; i++) {
-            // Just send first 76 bytes, last 4 is nonce which shader handles
-            headerU32[i] = (swappedHeader[i*4] << 24) | (swappedHeader[i*4+1] << 16) | (swappedHeader[i*4+2] << 8) | swappedHeader[i*4+3];
-        }
+        const merkleRoot = await calculateMerkleRoot(job.coinb1, job.extranonce1, extranonce2, job.coinb2, job.merkle_branch);
+        const headerBase = buildHeaderBase(job.version, job.prevhash, bytesToHex(merkleRoot), job.ntime, job.nbits);
 
-        // Convert target hex to u32 array
-        // Target in bitcoin is 256-bit little-endian integer.
-        const targetBytes = hexToBytes(wgMinerState.targetHex);
-        const targetU32 = new Uint32Array(8);
-        for (let i=0; i<8; i++) {
-            targetU32[i] = (targetBytes[i*4+3] << 24) | (targetBytes[i*4+2] << 16) | (targetBytes[i*4+1] << 8) | targetBytes[i*4];
-        }
+        const header = new Uint8Array(80);
+        header.set(headerBase, 0);
+        // header[76..79] (nonce) is filled in by the shader from nonceOffset + global_id.x
+
+        const headerU32 = packHeaderU32(header);
+        const targetU32 = packTargetU32(hexToBytes(wgMinerState.targetHex));
 
         device.queue.writeBuffer(wgMinerState.headerBuffer!, 0, headerU32);
         device.queue.writeBuffer(wgMinerState.targetBuffer!, 0, targetU32);
+        device.queue.writeBuffer(wgMinerState.nonceOffsetBuffer!, 0, new Uint32Array([nonceBase]));
 
-        // Clear result buffer
         const zeroResult = new Uint32Array(256);
         device.queue.writeBuffer(wgMinerState.resultBuffer!, 0, zeroResult);
-
-        const WORKGROUP_SIZE = 64;
-        const NUM_WORKGROUPS = 10000; // 640k nonces per frame
-        const hashesDone = WORKGROUP_SIZE * NUM_WORKGROUPS;
 
         const commandEncoder = device.createCommandEncoder();
         const passEncoder = commandEncoder.beginComputePass();
@@ -173,11 +181,14 @@ async function mineWebGPULoop(): Promise<void> {
 
         await wgMinerState.resultReadBuffer!.mapAsync(GPUMapMode.READ);
         const arrayBuffer = wgMinerState.resultReadBuffer!.getMappedRange();
-        const resultU32 = new Uint32Array(arrayBuffer);
+        const resultU32 = new Uint32Array(arrayBuffer.slice(0));
+        wgMinerState.resultReadBuffer!.unmap();
 
         const count = resultU32[0];
+        let latestHash: string | null = null;
+
         if (count > 0) {
-            console.log(`WEBGPU: Found ${count} nonces!`);
+            console.log(`WEBGPU: Found ${count} nonce(s) beating the target!`);
             for (let i = 1; i <= count && i < 256; i++) {
                 const foundNonce = resultU32[i];
                 const nonceBuffer = new Uint8Array(4);
@@ -186,60 +197,61 @@ async function mineWebGPULoop(): Promise<void> {
                 nonceBuffer[2] = (foundNonce >>> 8) & 0xFF;
                 nonceBuffer[3] = foundNonce & 0xFF;
 
-                wgMinerState.ws!.send(JSON.stringify({
-                    type: 'share',
-                    source: 'webgpu',
-                    shareInfo: {
-                        jobId: job.jobId,
-                        extranonce2: extranonce2,
-                        ntime: job.ntime,
-                        nonce: bytesToHex(nonceBuffer),
-                        hash: "WEBGPU_FOUND_HASH_PLACEHOLDER"
-                    }
-                }));
+                // Recompute the real hash for this specific nonce to report it honestly.
+                const shareHeader = new Uint8Array(header);
+                shareHeader.set(nonceBuffer, 76);
+                const shareHash = bytesToHex((await doubleSha256(shareHeader)).slice().reverse());
+                latestHash = shareHash;
+
+                if (wgMinerState.ws && wgMinerState.ws.readyState === WebSocket.OPEN) {
+                    wgMinerState.ws.send(JSON.stringify({
+                        type: 'share',
+                        source: 'webgpu',
+                        shareInfo: {
+                            jobId: job.jobId,
+                            extranonce2,
+                            ntime: job.ntime,
+                            nonce: bytesToHex(nonceBuffer),
+                            hash: shareHash
+                        }
+                    }));
+                }
             }
         }
 
-        wgMinerState.resultReadBuffer!.unmap();
-        wgMinerState.hashCount += hashesDone;
+        wgMinerState.hashCount += NONCES_PER_DISPATCH;
 
-        // Compute one real hash per dispatch, at a random nonce, using the
-        // same header bytes just sent to the GPU - purely so the dashboard's
-        // Latest/Best Hash panels have something genuine (and changing) to
-        // show. The shader itself only reports a count of nonces that beat
-        // the target, never a hash value; a fixed nonce here would make the
-        // displayed hash freeze until the next pool job, since nothing else
-        // about the header changes between dispatches of the same job.
-        let latestHash: string | null = null;
-        const sampleNonce = Math.floor(Math.random() * 0x100000000) >>> 0;
-        swappedHeader[76] = (sampleNonce >>> 24) & 0xFF;
-        swappedHeader[77] = (sampleNonce >>> 16) & 0xFF;
-        swappedHeader[78] = (sampleNonce >>> 8) & 0xFF;
-        swappedHeader[79] = sampleNonce & 0xFF;
-        try {
-            const digest1 = await crypto.subtle.digest('SHA-256', swappedHeader);
-            const digest2 = await crypto.subtle.digest('SHA-256', digest1);
-            latestHash = bytesToHex(new Uint8Array(digest2).reverse());
-        } catch (e) {
-            console.error('WebGPU sample hash failed:', e);
+        // Sample one real hash from this dispatch's actual nonce range (not
+        // the GPU's full result set - just enough for the dashboard's
+        // Latest/Best Hash panels to show real, changing values).
+        if (!latestHash) {
+            const sampleNonce = nonceBase + Math.floor(Math.random() * NONCES_PER_DISPATCH);
+            const sampleHeader = new Uint8Array(header);
+            sampleHeader[76] = (sampleNonce >>> 24) & 0xFF;
+            sampleHeader[77] = (sampleNonce >>> 16) & 0xFF;
+            sampleHeader[78] = (sampleNonce >>> 8) & 0xFF;
+            sampleHeader[79] = sampleNonce & 0xFF;
+            try {
+                latestHash = bytesToHex((await doubleSha256(sampleHeader)).slice().reverse());
+            } catch (e) {
+                console.error('WebGPU sample hash failed:', e);
+            }
         }
 
-        // Send hashrate update
         if (wgMinerState.ws && wgMinerState.ws.readyState === WebSocket.OPEN) {
             wgMinerState.ws.send(JSON.stringify({
                 type: 'hashrate',
                 source: 'webgpu',
-                count: hashesDone,
+                count: NONCES_PER_DISPATCH,
                 latestHash,
                 version: job.version,
                 en1: job.extranonce1,
                 en2: extranonce2,
-                nonce: sampleNonce.toString(16).padStart(8, '0')
+                nonce: (nonceBase >>> 0).toString(16).padStart(8, '0')
             }));
         }
 
-        // Randomize nonce offset next run if we want full coverage
-        wgMinerState.nonceOffset += NUM_WORKGROUPS;
+        wgMinerState.nonceBase = nonceBase + NONCES_PER_DISPATCH;
 
         wgMinerState.isHashing = false;
         if (wgMinerState.isMining) {
@@ -276,6 +288,9 @@ export async function startWebGPUMining(): Promise<void> {
                 console.log("WebGPU miner received new job:", msg.job.jobId);
                 wgMinerState.job = msg.job;
                 wgMinerState.targetHex = msg.job.target || "000000000000000000021a420000000000000000000000000000000000000000"; // fallback
+                // A new job means a new coinbase/Merkle root - reset nonce progress.
+                wgMinerState.extranonce2 = '';
+                wgMinerState.nonceBase = 0;
                 if (wgMinerState.isMining) {
                     mineWebGPULoop();
                 }
