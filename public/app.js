@@ -58,7 +58,24 @@ function satsToBtc(satoshis) {
     return (satoshis / 100_000_000).toFixed(8) + ' BTC';
 }
 
-function renderBlockHeader(blockHeader) {
+function leadingZeroBitsHex(hex) {
+    if (!hex) return '-';
+    let bits = 0;
+    for (const ch of hex) {
+        const nibble = parseInt(ch, 16);
+        if (isNaN(nibble)) break;
+        if (nibble === 0) {
+            bits += 4;
+            continue;
+        }
+        bits += Math.clz32(nibble) - 28; // leading zero bits within this nibble
+        break;
+    }
+    const hexZeros = Math.floor(bits / 4);
+    return `${bits} bits (${hexZeros} hex digits)`;
+}
+
+function renderBlockHeader(blockHeader, targetHex) {
     const heightEl = document.getElementById('val-block-height');
     const diffEl = document.getElementById('val-block-difficulty');
     const valueEl = document.getElementById('val-block-value');
@@ -68,7 +85,7 @@ function renderBlockHeader(blockHeader) {
     if (!heightEl || !blockHeader) return;
 
     heightEl.textContent = blockHeader.blockHeight;
-    diffEl.textContent = diffSuffix(blockHeader.networkDifficulty);
+    diffEl.textContent = `${diffSuffix(blockHeader.networkDifficulty)} (${leadingZeroBitsHex(targetHex)} required)`;
     valueEl.textContent = satsToBtc(blockHeader.totalValueSatoshis);
     scriptsigEl.textContent = blockHeader.scriptsig || '-';
 
@@ -118,6 +135,8 @@ evtSource.onmessage = (event) => {
     if (els.poolDiff) els.poolDiff.textContent = isNaN(data.difficultyDecimal) ? data.difficultyDecimal : formatNumber(data.difficultyDecimal);
     if (els.difficultyNbits) els.difficultyNbits.textContent = data.difficultyNbits;
     if (els.target) els.target.textContent = data.target ? data.target.substring(0, 32) + '...' : '-';
+    const targetZerosEl = document.getElementById('val-target-zeros');
+    if (targetZerosEl) targetZerosEl.textContent = leadingZeroBitsHex(data.target);
     if (els.poolMode) els.poolMode.textContent = data.protocol || 'SV1';
     if (els.jobsReceived) els.jobsReceived.textContent = formatNumber(data.jobsReceived || 0);
     if (els.currentJob) els.currentJob.textContent = data.currentJobId || 'None';
@@ -169,7 +188,7 @@ evtSource.onmessage = (event) => {
 
     // Update real Block Header info (decoded from the current job's coinbase tx)
     if (data.blockHeader) {
-        renderBlockHeader(data.blockHeader);
+        renderBlockHeader(data.blockHeader, data.target);
     }
 };
 

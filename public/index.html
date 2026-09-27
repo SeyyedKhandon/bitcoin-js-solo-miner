@@ -22,11 +22,11 @@
         <header class="glass-panel">
             <div class="logo">
                 <div class="pulse-ring"></div>
-                <h1>Bitcoin JS Solo Miner</h1>
+                <h1 data-tooltip="A Bitcoin solo miner that runs entirely in Node.js: it speaks the Stratum protocol to a pool, hashes block headers looking for a valid nonce, and can also mine from your browser via CPU (WebCrypto) or GPU (WebGPU).">Bitcoin JS Solo Miner</h1>
             </div>
             <div class="status-indicator">
                 <span class="dot active"></span>
-                <span id="connection-status">Connecting to Pool...</span>
+                <span id="connection-status" data-tooltip="Whether the server-sent-events stream from this page to the Node.js server is connected. This is the browser-to-server link, not the server-to-pool link — check the server's own console log for pool connection status.">Connecting to Pool...</span>
             </div>
         </header>
 
@@ -37,10 +37,10 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
                     <h2 style="margin: 0;">Mining Config</h2>
                     <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
-                        <button id="toggle-node-mining" style="padding: 0.5rem 1rem; background: #4CAF50; color: #000; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Start Node CPU Miner</button>
-                        <button id="toggle-browser-mining" style="padding: 0.5rem 1rem; background: var(--accent); color: var(--bg); border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Start Browser CPU Mining</button>
-                        <button id="toggle-webgpu-mining" style="padding: 0.5rem 1rem; background: #61dafb; color: #000; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Start WebGPU Mining</button>
-                        <select id="threads-select"
+                        <button id="toggle-node-mining" data-tooltip="Starts or stops CPU mining on the Node.js server itself, using the worker thread pool below. This runs on the machine hosting this page, not in your browser." style="padding: 0.5rem 1rem; background: #4CAF50; color: #000; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Start Node CPU Miner</button>
+                        <button id="toggle-browser-mining" data-tooltip="Runs a CPU miner inside THIS browser tab using the Web Crypto API's SHA-256 function. It's a demo of the browser-mining architecture — it doesn't build a real Merkle root, so it can't actually find valid shares, but it shows real hashrate." style="padding: 0.5rem 1rem; background: var(--accent); color: var(--bg); border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Start Browser CPU Mining</button>
+                        <button id="toggle-webgpu-mining" data-tooltip="Runs the double-SHA256 nonce search on your graphics card via WebGPU — orders of magnitude faster than CPU hashing. Requires a WebGPU-capable browser (recent Chrome/Edge)." style="padding: 0.5rem 1rem; background: #61dafb; color: #000; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Start WebGPU Mining</button>
+                        <select id="threads-select" data-tooltip="How many CPU worker threads mine in parallel on the server. Each thread is assigned its own slice of the 4.29 billion possible nonce values (0 to 0xFFFFFFFF) so they don't repeat each other's work."
                             style="padding: 0.25rem 0.5rem; background: rgba(0,0,0,0.5); color: white; border: 1px solid var(--panel-border); border-radius: 8px; font-size: 0.8rem; cursor: pointer;">
                             <option value="1">1 Thread</option>
                             <option value="2">2 Threads</option>
@@ -49,7 +49,7 @@
                             <option value="16">16 Threads</option>
                             <option value="32">32 Threads</option>
                         </select>
-                        <select id="protocol-select"
+                        <select id="protocol-select" class="tooltip-left" data-tooltip="Stratum V1 is the classic plaintext JSON-RPC mining protocol used by virtually every pool — this is what this miner speaks. Stratum V2 is a newer binary protocol with better efficiency and security; switching to it here is not yet implemented."
                             style="padding: 0.25rem 0.5rem; background: rgba(0,0,0,0.5); color: white; border: 1px solid var(--panel-border); border-radius: 8px; font-size: 0.8rem; cursor: pointer;">
                             <option value="SV1">Stratum V1 (SV1)</option>
                             <option value="SV2">Stratum V2 (SV2)</option>
@@ -57,7 +57,7 @@
                     </div>
                 </div>
                 <div style="margin-bottom: 1rem;">
-                    <select id="strategy-select"
+                    <select id="strategy-select" data-tooltip="Which order the worker searches the 32-bit nonce space in. ALL_MODE rotates through every strategy below (one per job), which is useful for comparing how search order affects how quickly shares are found — in principle every nonce is equally likely to be valid, so this is mostly an experiment in cache/branch behavior rather than a real edge."
                         style="width: 100%; padding: 0.5rem; background: rgba(0,0,0,0.5); color: white; border: 1px solid var(--panel-border); border-radius: 8px; font-family: var(--font-ui); cursor: pointer;">
                         <option value="0">0 - ALL_MODE</option>
                         <option value="1">1 - STANDARD</option>
@@ -75,7 +75,7 @@
                     </select>
                 </div>
                 <div id="custom-nonce-group" style="display: none;">
-                    <h2>Custom Nonce</h2>
+                    <h2 data-tooltip="Only used by the CUSTOM_NONCE strategy: the fixed 32-bit starting value each worker uses instead of its usual assigned slice of the nonce space.">Custom Nonce</h2>
                     <input type="number" id="custom-nonce-input" value="0"
                         style="padding: 0.5rem; background: rgba(0,0,0,0.5); color: white; border: 1px solid var(--panel-border); border-radius: 8px; font-family: var(--font-mono); max-width: 150px;">
                 </div>
@@ -87,34 +87,35 @@
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem;">
 
                     <div>
-                        <h3 style="color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; margin-bottom: 0.5rem;">Hashrate</h3>
+                        <h3 data-tooltip="Hashes per second, averaged over the last 1 second, 1 minute, and 1 hour. Short windows are noisy; the 1h average is the steadiest picture of real throughput." style="color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; margin-bottom: 0.5rem;">Hashrate</h3>
                         <div class="stat-value text-accent"><span id="val-hashrate-1s">0</span> <span class="unit" style="font-size: 1rem;">H/s</span></div>
                         <div class="stat-detail">1m: <strong id="val-hashrate-1m">0</strong> H/s | 1h: <strong id="val-hashrate-1h">0</strong> H/s</div>
                     </div>
 
                     <div>
-                        <h3 style="color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; margin-bottom: 0.5rem;">Jobs</h3>
+                        <h3 data-tooltip="How many times the pool has sent a new job (mining.notify) since this server started. A new job usually means either a new block appeared on the network, or the pool refreshed the transaction set backing your work." style="color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; margin-bottom: 0.5rem;">Jobs</h3>
                         <div class="stat-value"><span id="val-jobs-received">0</span></div>
                         <div class="stat-detail">Current: <strong id="val-current-job" style="font-family: var(--font-mono); font-size: 0.8rem;">None</strong></div>
                     </div>
 
                     <div>
-                        <h3 style="color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; margin-bottom: 0.5rem;">Total Tries</h3>
+                        <h3 data-tooltip="Total number of double-SHA256 hashes attempted across all CPU worker threads since this server started." style="color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; margin-bottom: 0.5rem;">Total Tries</h3>
                         <div class="stat-value" id="val-total-hashes">0</div>
                         <div class="stat-detail">Hashes Computed</div>
                     </div>
 
                     <div>
-                        <h3 style="color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; margin-bottom: 0.5rem;">Shares Found</h3>
+                        <h3 data-tooltip="A 'share' is a hash that beats the pool's (easy) share target — proof you're really hashing, sent so the pool can measure your contribution. It does NOT mean you found a block; that needs a hash below the much harder network target below. 'Stale' shares arrived after the pool had already moved to a new job, so they're rejected." style="color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; margin-bottom: 0.5rem;">Shares Found</h3>
                         <div class="stat-value text-accent" id="val-shares">0</div>
                         <div class="stat-detail">Stale: <strong id="val-stale-shares">0</strong> | Eff: <strong id="val-efficiency">0.00</strong></div>
                     </div>
 
                     <div>
-                        <h3 style="color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; margin-bottom: 0.5rem;">Network Target</h3>
-                        <div class="stat-value" style="font-size: 1.5rem;" id="val-difficulty">Waiting...</div>
-                        <div class="stat-detail">Nbits: <strong id="val-difficulty-nbits">-</strong></div>
-                        <div class="stat-detail">Target: <strong id="val-target" style="word-break: break-all; font-family: var(--font-mono); font-size: 0.75rem;">-</strong></div>
+                        <h3 data-tooltip="The actual Bitcoin network target for the current block, decoded from the pool's 'nbits' field. Your hash must be numerically less than or equal to this 256-bit number to count as a valid block — see the Leading Zeros line below for how hard that really is." style="color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; margin-bottom: 0.5rem;">Network Target</h3>
+                        <div class="stat-value" style="font-size: 1.5rem;" id="val-difficulty" data-tooltip="Network difficulty: how many times harder the current target is than the easiest possible target (difficulty 1). It's set by the network every 2016 blocks (~2 weeks) so that, given the whole network's combined hashrate, a block is found roughly every 10 minutes.">Waiting...</div>
+                        <div class="stat-detail" data-tooltip="nbits is the pool's compact 4-byte encoding of the 256-bit target (1 exponent byte + 3 mantissa bytes) — the same format stored in every Bitcoin block header.">Nbits: <strong id="val-difficulty-nbits">-</strong></div>
+                        <div class="stat-detail" data-tooltip="The full 256-bit target, as a 64-character hex number. A valid block hash (read as a big number) must be less than or equal to this.">Target: <strong id="val-target" style="word-break: break-all; font-family: var(--font-mono); font-size: 0.75rem;">-</strong></div>
+                        <div class="stat-detail" data-tooltip="How many leading zero bits (and hex digits) the target starts with. A miner's hash needs at least this many leading zero bits to be a valid block — every extra required bit roughly doubles the number of hashes needed on average, which is exactly what 'difficulty' measures.">Leading Zeros: <strong id="val-target-zeros">-</strong></div>
                     </div>
 
                 </div>
@@ -123,35 +124,35 @@
             <!-- Hash Details -->
             <section class="glass-panel detail-card full-width">
                 <div class="card-header">
-                    <h2>Latest Hash Found</h2>
+                    <h2 data-tooltip="The most recent hash any worker thread computed — not necessarily a good one. Shown so you can see the miner is actually working.">Latest Hash Found</h2>
                     <div>
-                        <span class="badge" id="val-latest-diff">Diff: 0</span>
-                        <span class="badge" id="val-latest-zeros">0 Zeros</span>
+                        <span class="badge" id="val-latest-diff" data-tooltip="This hash's own difficulty: how many times harder it is than difficulty 1. Compare this to the Network Target's difficulty above — it needs to be at least that high to be a valid block.">Diff: 0</span>
+                        <span class="badge" id="val-latest-zeros" data-tooltip="Number of leading zero hex digits in this specific hash.">0 Zeros</span>
                     </div>
                 </div>
-                <div class="hash-string" id="val-latest-hash">Waiting for first hash...</div>
+                <div class="hash-string" id="val-latest-hash" data-tooltip="The double-SHA256 hash of the 80-byte block header (version + previous block hash + Merkle root + time + nbits + nonce), displayed in the usual big-endian, human-readable order.">Waiting for first hash...</div>
                 <div class="hash-meta">
-                    <div class="meta-item"><span>Version</span><strong id="val-latest-ver">-</strong></div>
-                    <div class="meta-item"><span>Extranonce 1</span><strong id="val-latest-en1">-</strong></div>
-                    <div class="meta-item"><span>Extranonce 2</span><strong id="val-latest-en2">-</strong></div>
-                    <div class="meta-item"><span>Nonce</span><strong id="val-latest-nonce">-</strong></div>
+                    <div class="meta-item" data-tooltip="The block header version field. Also carries 'signal bits' miners set to vote for pending protocol upgrades (soft forks)."><span>Version</span><strong id="val-latest-ver">-</strong></div>
+                    <div class="meta-item" data-tooltip="A unique ID the pool assigned to this miner's connection when it subscribed, used to build a coinbase transaction that's different from every other miner working the same job."><span>Extranonce 1</span><strong id="val-latest-en1">-</strong></div>
+                    <div class="meta-item" data-tooltip="An additional nonce this miner controls and increments itself, appended after extranonce1. Rolling it lets a worker get a whole new coinbase transaction (and Merkle root) to search once it exhausts the 4-billion nonce field alone."><span>Extranonce 2</span><strong id="val-latest-en2">-</strong></div>
+                    <div class="meta-item" data-tooltip="The 32-bit value (0 to 4,294,967,295) that a worker increments while searching for a hash below the target — the actual 'proof of work' number."><span>Nonce</span><strong id="val-latest-nonce">-</strong></div>
                 </div>
             </section>
 
             <section class="glass-panel detail-card full-width">
                 <div class="card-header">
-                    <h2>Best Hash (Session)</h2>
+                    <h2 data-tooltip="The best (numerically smallest, i.e. highest-difficulty) hash found by any worker since this server started, kept even after newer, worse hashes come in.">Best Hash (Session)</h2>
                     <div>
-                        <span class="badge badge-gold" id="val-best-diff">Diff: 0</span>
-                        <span class="badge badge-gold" id="val-best-zeros">0 Zeros</span>
+                        <span class="badge badge-gold" id="val-best-diff" data-tooltip="This hash's difficulty — the highest reached so far this session. The closer this gets to the Network Target's difficulty, the closer this miner came to a real block.">Diff: 0</span>
+                        <span class="badge badge-gold" id="val-best-zeros" data-tooltip="Number of leading zero hex digits in the best hash found so far.">0 Zeros</span>
                     </div>
                 </div>
-                <div class="hash-string text-gold" id="val-best-hash">Waiting for first hash...</div>
+                <div class="hash-string text-gold" id="val-best-hash" data-tooltip="The lowest hash value found this session — the one that came closest to being a valid block.">Waiting for first hash...</div>
                 <div class="hash-meta">
-                    <div class="meta-item"><span>Version</span><strong id="val-best-ver">-</strong></div>
-                    <div class="meta-item"><span>Extranonce 1</span><strong id="val-best-en1">-</strong></div>
-                    <div class="meta-item"><span>Extranonce 2</span><strong id="val-best-en2">-</strong></div>
-                    <div class="meta-item"><span>Nonce</span><strong id="val-best-nonce">-</strong></div>
+                    <div class="meta-item" data-tooltip="The block header version used when this hash was found."><span>Version</span><strong id="val-best-ver">-</strong></div>
+                    <div class="meta-item" data-tooltip="The pool-assigned extranonce1 used when this hash was found."><span>Extranonce 1</span><strong id="val-best-en1">-</strong></div>
+                    <div class="meta-item" data-tooltip="The self-chosen extranonce2 used when this hash was found."><span>Extranonce 2</span><strong id="val-best-en2">-</strong></div>
+                    <div class="meta-item" data-tooltip="The winning nonce value for this hash."><span>Nonce</span><strong id="val-best-nonce">-</strong></div>
                 </div>
             </section>
 
@@ -163,41 +164,41 @@
                     <div
                         style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; font-size: 0.9rem;">
                         <div>
-                            <div style="color: var(--text-muted); margin-bottom: 0.25rem;">URL</div>
+                            <div style="color: var(--text-muted); margin-bottom: 0.25rem;" data-tooltip="The Stratum pool this miner connects to over a plain TCP socket. eusolo.ckpool.org is the European endpoint of ckpool's public SOLO mining service, run by Bitcoin Core contributor Con Kolivas — unlike a normal shared pool, a solo pool pays the ENTIRE block reward to whoever finds a block, but on typical home hardware that could take centuries, since you're competing alone against the whole network's hashrate.">URL</div>
                             <strong id="val-pool-url"
                                 style="font-size: 1.1rem; display: block; margin-bottom: 1.5rem; word-break: break-word;">eusolo.ckpool.org:3333</strong>
 
-                            <div style="color: var(--text-muted); margin-bottom: 0.25rem;">Time</div>
+                            <div style="color: var(--text-muted); margin-bottom: 0.25rem;" data-tooltip="Round-trip time to the pool server. Not currently measured live by this miner — shown as a placeholder value.">Time</div>
                             <strong style="font-size: 1.1rem; display: block; margin-bottom: 1.5rem;">27.4 ms</strong>
 
-                            <div style="color: var(--text-muted); margin-bottom: 0.25rem;">Pool Diff</div>
+                            <div style="color: var(--text-muted); margin-bottom: 0.25rem;" data-tooltip="The share difficulty the pool has assigned this connection (via mining.set_difficulty) — much lower than the real network difficulty, so this miner can produce a 'share' often enough for the pool to track its contribution.">Pool Diff</div>
                             <strong id="val-pool-diff" style="font-size: 1.1rem; display: block;">1000</strong>
                         </div>
                         <div>
-                            <div style="color: var(--text-muted); margin-bottom: 0.25rem;">User</div>
+                            <div style="color: var(--text-muted); margin-bottom: 0.25rem;" class="tooltip-left" data-tooltip="The Bitcoin address this miner authorizes as (config.js workerName) — for solo pools, your payout address doubles as your Stratum username, since there's no separate account system.">User</div>
                             <strong id="val-pool-user"
                                 style="font-size: 1.1rem; display: block; margin-bottom: 1.5rem; word-break: break-word;">bc1q
                                 vvag...p8j2 en</strong>
 
-                            <div style="color: var(--text-muted); margin-bottom: 0.25rem;">Fee</div>
+                            <div style="color: var(--text-muted); margin-bottom: 0.25rem;" class="tooltip-left" data-tooltip="The cut the pool operator keeps from the block reward if this miner ever actually finds a block. ckpool's public solo service has historically documented a 2% solo fee. Stratum has no standard field for pools to report their fee, so this is informational only, not read live from the pool — verify the current rate on the pool's own site before relying on it.">Fee</div>
                             <strong style="font-size: 1.1rem; display: block; margin-bottom: 1.5rem;">2%</strong>
 
-                            <div style="color: var(--text-muted); margin-bottom: 0.25rem;">Mode</div>
+                            <div style="color: var(--text-muted); margin-bottom: 0.25rem;" class="tooltip-left" data-tooltip="Which Stratum protocol version this connection uses. See the Protocol selector above for the difference between V1 and V2.">Mode</div>
                             <strong id="val-pool-mode" style="font-size: 1.1rem; display: block;">SV1</strong>
                         </div>
                     </div>
                 </section>
 
                 <section class="glass-panel list-card flex-grow">
-                    <h2>Block Header <span id="val-block-signals"></span></h2>
+                    <h2 data-tooltip="Real data decoded from the current job's coinbase transaction — the special first transaction in every block, which mints the block subsidy and pays it (plus fees) to whoever mines the block. Badges here show BIP-54/BIP-110 signaling: bits miners set in the block version to vote for a pending protocol upgrade.">Block Header <span id="val-block-signals"></span></h2>
                     <ul class="key-value-list">
-                        <li><span>Height</span> <strong id="val-block-height">-</strong></li>
-                        <li><span>Difficulty</span> <strong id="val-block-difficulty">-</strong></li>
-                        <li><span>Value</span> <strong id="val-block-value">-</strong></li>
-                        <li class="col-span"><span>Scriptsig</span> <strong
+                        <li><span data-tooltip="The height of the block being mined toward — its position in the chain, counting up from block 0 (the genesis block, mined by Satoshi Nakamoto in January 2009). Decoded from the BIP34 height push at the start of the coinbase transaction's scriptSig.">Height</span> <strong id="val-block-height">-</strong></li>
+                        <li><span data-tooltip="Network difficulty for this block, computed from the pool's nbits field — see the Network Target card above for the full target and its required leading-zero-bit count.">Difficulty</span> <strong id="val-block-difficulty">-</strong></li>
+                        <li><span data-tooltip="Total value (in BTC) of all this coinbase transaction's outputs: the newly-minted block subsidy plus every transaction fee collected in the block. Whoever mines this block splits this between themselves and the pool per its payout/fee policy.">Value</span> <strong id="val-block-value">-</strong></li>
+                        <li class="col-span"><span data-tooltip="Free-form text the pool embeds in the coinbase input's scriptSig — often the pool's name or URL, sometimes a political/celebratory message. Miners can't be forced to include anything here beyond the mandatory BIP34 height.">Scriptsig</span> <strong
                                 class="code" id="val-block-scriptsig">-</strong></li>
                         <li class="col-span">
-                            <span>Outputs</span>
+                            <span data-tooltip="Every output of the coinbase transaction: who gets paid from the newly-minted coins and fees, and how much. A ★ marks the output matching this miner's own configured payout address. One output with no BTC value is almost always the SegWit witness-commitment (an OP_RETURN carrying a hash miners must include to make SegWit blocks valid) — shown as filtered text rather than an address.">Outputs</span>
                             <div class="sub-list" id="val-block-outputs"></div>
                         </li>
                     </ul>
