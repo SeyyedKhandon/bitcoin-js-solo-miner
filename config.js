@@ -6,7 +6,7 @@ export const config = {
 
   // Miner credentials
   // This is a donation address, used only for testing solo mining.
-  workerName: "bc1qvvag6tggu5l309gjt5xwm2a0enn9m8m7p8j2en",
+  workerName: "bc1q46yjwqmfr24jcuyhpn4ytw43jg574vrgas0nms",
   workerPassword: "x",
 
   // Logging configuration
@@ -15,5 +15,5 @@ export const config = {
   // Mining strategy (see mining/strategies.js for the full list)
   miningMethod: 0, // 0 = ALL_MODE (cycles through every strategy)
   customNonce: 0,
-  threads: 1
+  threads: 1,
 };
