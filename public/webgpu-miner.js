@@ -181,6 +181,7 @@ async function mineWebGPULoop() {
 
                 wgMinerState.ws.send(JSON.stringify({
                     type: 'share',
+                    source: 'webgpu',
                     shareInfo: {
                         jobId: job.jobId,
                         extranonce2: extranonce2,
@@ -199,6 +200,7 @@ async function mineWebGPULoop() {
         if (wgMinerState.ws && wgMinerState.ws.readyState === WebSocket.OPEN) {
             wgMinerState.ws.send(JSON.stringify({
                 type: 'hashrate',
+                source: 'webgpu',
                 count: hashesDone
             }));
         }
@@ -251,6 +253,7 @@ export async function startWebGPUMining() {
     
     wgMinerState.ws.onopen = () => {
         console.log("WebGPU miner connected to Stratum proxy.");
+        wgMinerState.ws.send(JSON.stringify({ type: 'hello', source: 'webgpu' }));
     };
     
     console.log("WebGPU mining started.");

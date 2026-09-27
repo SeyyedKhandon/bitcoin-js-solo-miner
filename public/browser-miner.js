@@ -78,6 +78,14 @@ async function mineLoop() {
         nonce++;
     }
 
+    if (minerState.ws && minerState.ws.readyState === WebSocket.OPEN) {
+        minerState.ws.send(JSON.stringify({
+            type: 'hashrate',
+            source: 'browser-cpu',
+            count: 100
+        }));
+    }
+
     setTimeout(mineLoop, 0);
 }
 
@@ -105,6 +113,7 @@ function startBrowserMining() {
 
     minerState.ws.onopen = () => {
         console.log("Browser miner connected to Stratum proxy.");
+        minerState.ws.send(JSON.stringify({ type: 'hello', source: 'browser-cpu' }));
     };
 
     console.log("Browser mining started.");
