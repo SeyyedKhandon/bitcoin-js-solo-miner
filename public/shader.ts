@@ -12,6 +12,15 @@ struct SHA256_CTX {
 @group(0) @binding(1) var<storage, read> targetInput : array<u32>; // 8 u32s (32 bytes) target
 @group(0) @binding(2) var<storage, read_write> resultNonce : array<atomic<u32>>; // [found_count, nonce1, nonce2, ...]
 @group(0) @binding(3) var<uniform> nonceOffset : u32; // base nonce this dispatch starts searching from
+// Per-workgroup best (lowest, i.e. most-leading-zeros) hash seen, written by
+// each workgroup's thread 0 after a local reduction: [word0, nonce0, word1,
+// nonce1, ...]. JS does a cheap final reduction over these (one pair per
+// workgroup, not per thread) to report the dispatch's true best hash instead
+// of a single random sample - see mineWebGPULoop in webgpu-miner.ts.
+@group(0) @binding(4) var<storage, read_write> bestPerWorkgroup : array<u32>;
+
+var<workgroup> sharedWord : array<u32, 64>;
+var<workgroup> sharedNonce : array<u32, 64>;
 
 const SHA256_BLOCK_SIZE = 32;
 
@@ -171,7 +180,11 @@ fn init_ctx(ctx : ptr<function, SHA256_CTX>) {
 }
 
 @compute @workgroup_size(64, 1, 1)
-fn main(@builtin(global_invocation_id) global_id : vec3<u32>) {
+fn main(
+    @builtin(global_invocation_id) global_id : vec3<u32>,
+    @builtin(local_invocation_id) local_id : vec3<u32>,
+    @builtin(workgroup_id) workgroup_id : vec3<u32>
+) {
     let nonce = nonceOffset + global_id.x;
 
     // Load header (80 bytes) from u32 buffer
@@ -236,6 +249,27 @@ fn main(@builtin(global_invocation_id) global_id : vec3<u32>) {
         if (idx < 255u) {
             atomicStore(&resultNonce[idx + 1u], nonce);
         }
+    }
+
+    // Track the best (smallest most-significant word, i.e. most leading
+    // zero bytes) hash within this workgroup of 64 threads. hash2[28..31]
+    // is the same most-significant display word as the i=0 case above.
+    let topWord = (hash2[31] << 24u) | (hash2[30] << 16u) | (hash2[29] << 8u) | hash2[28];
+    sharedWord[local_id.x] = topWord;
+    sharedNonce[local_id.x] = nonce;
+    workgroupBarrier();
+
+    if (local_id.x == 0u) {
+        var bestWord = sharedWord[0];
+        var bestNonce = sharedNonce[0];
+        for (var j = 1u; j < 64u; j++) {
+            if (sharedWord[j] < bestWord) {
+                bestWord = sharedWord[j];
+                bestNonce = sharedNonce[j];
+            }
+        }
+        bestPerWorkgroup[workgroup_id.x * 2u] = bestWord;
+        bestPerWorkgroup[workgroup_id.x * 2u + 1u] = bestNonce;
     }
 }
 `;

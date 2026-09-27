@@ -47,8 +47,12 @@ async function mineLoop(): Promise<void> {
 
     const target = job.target ? BigInt(`0x${job.target}`) : null;
     let nonce = Math.floor(Math.random() * 0xFFFFFFFF);
+    // Reports the best (lowest-value) hash seen this batch, not just the
+    // last nonce tried - otherwise the Best Hash display only ever sampled
+    // 1-in-100 arbitrary hashes instead of the actual best one found.
     let latestHash: string | null = null;
     let latestNonce = nonce;
+    let bestHashBigInt: bigint | null = null;
 
     for (let i = 0; i < 100; i++) {
         if (!minerState.isMining) break;
@@ -60,10 +64,14 @@ async function mineLoop(): Promise<void> {
 
         const resultBytes = await doubleSha256(header);
         const hashHex = bytesToHex(resultBytes.slice().reverse());
-        latestHash = hashHex;
-        latestNonce = nonce;
+        const hashBigInt = BigInt(`0x${hashHex}`);
+        if (bestHashBigInt === null || hashBigInt < bestHashBigInt) {
+            bestHashBigInt = hashBigInt;
+            latestHash = hashHex;
+            latestNonce = nonce;
+        }
 
-        if (target !== null && BigInt(`0x${hashHex}`) <= target) {
+        if (target !== null && hashBigInt <= target) {
             const nonceBuffer = new Uint8Array(4);
             nonceBuffer[0] = (nonce >>> 24) & 0xFF;
             nonceBuffer[1] = (nonce >>> 16) & 0xFF;

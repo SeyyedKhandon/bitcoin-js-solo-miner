@@ -153,11 +153,30 @@ function mineChunk(): void {
 
   let hashesDone = 0;
 
+  // Tracks the single best (lowest-value / highest-difficulty) hash actually
+  // computed in this chunk, since CHUNK_SIZE hashes are done per chunk but
+  // only one gets reported back to the main thread for the Latest/Best Hash
+  // display - reporting the last nonce tried (instead of the best one seen)
+  // meant bestHash only ever sampled 1-in-CHUNK_SIZE arbitrary hashes.
+  let bestHashHex = '';
+  let bestHashBigInt: bigint | null = null;
+  let bestNonce = nonce;
+
   for (let i = 0; i < CHUNK_SIZE; i++) {
     if ((isBounded && nonce > startNonce + chunkSpace) || nonce > 0xFFFFFFFF) {
       state.extranonce2Counter++;
       currentNonce = 0;
-      port.postMessage({ type: 'hashrate', count: hashesDone, latestHash: doubleSha256(header).reverse().toString('hex') });
+      const nonceBuffer = Buffer.allocUnsafe(4);
+      nonceBuffer.writeUInt32BE(bestNonce, 0);
+      port.postMessage({
+        type: 'hashrate',
+        count: hashesDone,
+        latestHash: bestHashHex,
+        version: state.job.version,
+        en1: state.job.extranonce1,
+        en2: extranonce2,
+        nonce: nonceBuffer.toString('hex')
+      });
       setImmediate(mineChunk);
       return;
     }
@@ -168,6 +187,12 @@ function mineChunk(): void {
     // Hash is little-endian; reverse to get the conventional display order
     const hashHex = hashResult.reverse().toString('hex');
     const hashBigInt = BigInt(`0x${hashHex}`);
+
+    if (bestHashBigInt === null || hashBigInt < bestHashBigInt) {
+      bestHashBigInt = hashBigInt;
+      bestHashHex = hashHex;
+      bestNonce = nonce;
+    }
 
     if (hashBigInt <= targetBigInt) {
       const nonceBuffer = Buffer.allocUnsafe(4);
@@ -191,12 +216,12 @@ function mineChunk(): void {
   currentNonce = nonce;
 
   const nonceBuffer = Buffer.allocUnsafe(4);
-  nonceBuffer.writeUInt32BE(nonce >>> 0, 0);
+  nonceBuffer.writeUInt32BE(bestNonce >>> 0, 0);
 
   port.postMessage({
     type: 'hashrate',
     count: hashesDone,
-    latestHash: doubleSha256(header).reverse().toString('hex'),
+    latestHash: bestHashHex,
     version: state.job.version,
     en1: state.job.extranonce1,
     en2: extranonce2,

@@ -19,6 +19,8 @@ interface WebGPUMinerState {
     resultBuffer: GPUBuffer | null;
     resultReadBuffer: GPUBuffer | null;
     nonceOffsetBuffer: GPUBuffer | null;
+    bestPerWorkgroupBuffer: GPUBuffer | null;
+    bestPerWorkgroupReadBuffer: GPUBuffer | null;
     bindGroup: GPUBindGroup | null;
     isHashing: boolean;
     // Nonce-space progress for the current job: which 640k-nonce slice
@@ -43,6 +45,8 @@ const wgMinerState: WebGPUMinerState = {
     resultBuffer: null,
     resultReadBuffer: null,
     nonceOffsetBuffer: null,
+    bestPerWorkgroupBuffer: null,
+    bestPerWorkgroupReadBuffer: null,
     bindGroup: null,
     isHashing: false,
     extranonce2: '',
@@ -99,6 +103,18 @@ async function initWebGPU(): Promise<void> {
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
+    // One (best top-word, best nonce) pair per workgroup, reduced locally in
+    // the shader from its 64 threads - see bestPerWorkgroup in shader.ts.
+    wgMinerState.bestPerWorkgroupBuffer = device.createBuffer({
+        size: NUM_WORKGROUPS * 2 * 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+
+    wgMinerState.bestPerWorkgroupReadBuffer = device.createBuffer({
+        size: NUM_WORKGROUPS * 2 * 4,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+
     wgMinerState.bindGroup = device.createBindGroup({
         layout: wgMinerState.pipeline.getBindGroupLayout(0),
         entries: [
@@ -106,6 +122,7 @@ async function initWebGPU(): Promise<void> {
             { binding: 1, resource: { buffer: wgMinerState.targetBuffer } },
             { binding: 2, resource: { buffer: wgMinerState.resultBuffer } },
             { binding: 3, resource: { buffer: wgMinerState.nonceOffsetBuffer } },
+            { binding: 4, resource: { buffer: wgMinerState.bestPerWorkgroupBuffer } },
         ],
     });
 }
@@ -176,6 +193,11 @@ async function mineWebGPULoop(): Promise<void> {
             wgMinerState.resultReadBuffer!, 0,
             256 * 4
         );
+        commandEncoder.copyBufferToBuffer(
+            wgMinerState.bestPerWorkgroupBuffer!, 0,
+            wgMinerState.bestPerWorkgroupReadBuffer!, 0,
+            NUM_WORKGROUPS * 2 * 4
+        );
 
         device.queue.submit([commandEncoder.finish()]);
 
@@ -184,8 +206,14 @@ async function mineWebGPULoop(): Promise<void> {
         const resultU32 = new Uint32Array(arrayBuffer.slice(0));
         wgMinerState.resultReadBuffer!.unmap();
 
+        await wgMinerState.bestPerWorkgroupReadBuffer!.mapAsync(GPUMapMode.READ);
+        const bestArrayBuffer = wgMinerState.bestPerWorkgroupReadBuffer!.getMappedRange();
+        const bestPerWorkgroupU32 = new Uint32Array(bestArrayBuffer.slice(0));
+        wgMinerState.bestPerWorkgroupReadBuffer!.unmap();
+
         const count = resultU32[0];
         let latestHash: string | null = null;
+        let latestNonceHex: string | null = null;
 
         if (count > 0) {
             console.log(`WEBGPU: Found ${count} nonce(s) beating the target!`);
@@ -202,6 +230,7 @@ async function mineWebGPULoop(): Promise<void> {
                 shareHeader.set(nonceBuffer, 76);
                 const shareHash = bytesToHex((await doubleSha256(shareHeader)).slice().reverse());
                 latestHash = shareHash;
+                latestNonceHex = bytesToHex(nonceBuffer);
 
                 if (wgMinerState.ws && wgMinerState.ws.readyState === WebSocket.OPEN) {
                     wgMinerState.ws.send(JSON.stringify({
@@ -221,20 +250,37 @@ async function mineWebGPULoop(): Promise<void> {
 
         wgMinerState.hashCount += NONCES_PER_DISPATCH;
 
-        // Sample one real hash from this dispatch's actual nonce range (not
-        // the GPU's full result set - just enough for the dashboard's
-        // Latest/Best Hash panels to show real, changing values).
+        // Find this dispatch's actual best hash: each workgroup already
+        // reduced its own 64 threads down to one (topWord, nonce) pair
+        // (see bestPerWorkgroup in shader.ts), so this is a cheap min-scan
+        // over NUM_WORKGROUPS pairs rather than the full 640k hashes - and,
+        // unlike a random sample, it's guaranteed to be the true best.
         if (!latestHash) {
-            const sampleNonce = nonceBase + Math.floor(Math.random() * NONCES_PER_DISPATCH);
-            const sampleHeader = new Uint8Array(header);
-            sampleHeader[76] = (sampleNonce >>> 24) & 0xFF;
-            sampleHeader[77] = (sampleNonce >>> 16) & 0xFF;
-            sampleHeader[78] = (sampleNonce >>> 8) & 0xFF;
-            sampleHeader[79] = sampleNonce & 0xFF;
+            let bestWord = bestPerWorkgroupU32[0];
+            let bestNonce = bestPerWorkgroupU32[1];
+            for (let i = 1; i < NUM_WORKGROUPS; i++) {
+                const word = bestPerWorkgroupU32[i * 2];
+                if (word < bestWord) {
+                    bestWord = word;
+                    bestNonce = bestPerWorkgroupU32[i * 2 + 1];
+                }
+            }
+
+            const bestNonceBuffer = new Uint8Array(4);
+            bestNonceBuffer[0] = (bestNonce >>> 24) & 0xFF;
+            bestNonceBuffer[1] = (bestNonce >>> 16) & 0xFF;
+            bestNonceBuffer[2] = (bestNonce >>> 8) & 0xFF;
+            bestNonceBuffer[3] = bestNonce & 0xFF;
+
+            // Recompute the real hash for this nonce to report it honestly,
+            // same as for shares above.
+            const bestHeader = new Uint8Array(header);
+            bestHeader.set(bestNonceBuffer, 76);
             try {
-                latestHash = bytesToHex((await doubleSha256(sampleHeader)).slice().reverse());
+                latestHash = bytesToHex((await doubleSha256(bestHeader)).slice().reverse());
+                latestNonceHex = bytesToHex(bestNonceBuffer);
             } catch (e) {
-                console.error('WebGPU sample hash failed:', e);
+                console.error('WebGPU best-hash recompute failed:', e);
             }
         }
 
@@ -247,7 +293,7 @@ async function mineWebGPULoop(): Promise<void> {
                 version: job.version,
                 en1: job.extranonce1,
                 en2: extranonce2,
-                nonce: (nonceBase >>> 0).toString(16).padStart(8, '0')
+                nonce: latestNonceHex || (nonceBase >>> 0).toString(16).padStart(8, '0')
             }));
         }
 
