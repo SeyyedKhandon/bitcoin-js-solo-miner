@@ -137,8 +137,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (els.protocolSelect) {
         els.protocolSelect.addEventListener('change', async () => {
             const protocol = els.protocolSelect.value;
-            const host = "eusolo.ckpool.org";
-            const port = 3333;
+            // Get host and port from inputs, fallback to ckpool if missing (but do not overwrite active config with a hardcode)
+            const hostInput = document.getElementById('pool-host-input');
+            const portInput = document.getElementById('pool-port-input');
+            const host = hostInput && hostInput.value ? hostInput.value : "eusolo.ckpool.org";
+            const port = portInput && portInput.value ? portInput.value : 3333;
 
             try {
                 await fetch('/api/pool', {
@@ -180,6 +183,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (customNonceInput) {
         customNonceInput.addEventListener('change', sendStrategy);
+    }
+
+    const toggleBrowserMiningBtn = document.getElementById('toggle-browser-mining');
+    if (toggleBrowserMiningBtn) {
+        let isBrowserMining = false;
+        toggleBrowserMiningBtn.addEventListener('click', () => {
+            if (isBrowserMining) {
+                window.stopBrowserMining();
+                isBrowserMining = false;
+                toggleBrowserMiningBtn.textContent = 'Start Browser CPU Mining';
+                toggleBrowserMiningBtn.style.background = 'var(--accent)';
+            } else {
+                window.startBrowserMining();
+                isBrowserMining = true;
+                toggleBrowserMiningBtn.textContent = 'Stop Browser CPU Mining';
+                toggleBrowserMiningBtn.style.background = '#ff5f56';
+            }
+        });
     }
 
     const toggleWebGPUMiningBtn = document.getElementById('toggle-webgpu-mining');

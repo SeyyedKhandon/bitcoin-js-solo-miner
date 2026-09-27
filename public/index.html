@@ -38,6 +38,7 @@
                     <h2 style="margin: 0;">Mining Config</h2>
                     <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
                         <button id="toggle-node-mining" style="padding: 0.5rem 1rem; background: #ff5f56; color: #000; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Stop Node CPU Miner</button>
+                        <button id="toggle-browser-mining" style="padding: 0.5rem 1rem; background: var(--accent); color: var(--bg); border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Start Browser CPU Mining</button>
                         <button id="toggle-webgpu-mining" style="padding: 0.5rem 1rem; background: #61dafb; color: #000; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Start WebGPU Mining</button>
                         <select id="threads-select"
                             style="padding: 0.25rem 0.5rem; background: rgba(0,0,0,0.5); color: white; border: 1px solid var(--panel-border); border-radius: 8px; font-size: 0.8rem; cursor: pointer;">
@@ -166,19 +167,51 @@
                             <strong id="val-pool-url"
                                 style="font-size: 1.1rem; display: block; margin-bottom: 1.5rem; word-break: break-word;">eusolo.ckpool.org:3333</strong>
 
+                            <div style="color: var(--text-muted); margin-bottom: 0.25rem;">Time</div>
+                            <strong style="font-size: 1.1rem; display: block; margin-bottom: 1.5rem;">27.4 ms</strong>
+
                             <div style="color: var(--text-muted); margin-bottom: 0.25rem;">Pool Diff</div>
-                            <strong id="val-pool-diff" style="font-size: 1.1rem; display: block;">-</strong>
+                            <strong id="val-pool-diff" style="font-size: 1.1rem; display: block;">1000</strong>
                         </div>
                         <div>
+                            <div style="color: var(--text-muted); margin-bottom: 0.25rem;">User</div>
+                            <strong id="val-pool-user"
+                                style="font-size: 1.1rem; display: block; margin-bottom: 1.5rem; word-break: break-word;">bc1q
+                                vvag...p8j2 en</strong>
+
+                            <div style="color: var(--text-muted); margin-bottom: 0.25rem;">Fee</div>
+                            <strong style="font-size: 1.1rem; display: block; margin-bottom: 1.5rem;">2%</strong>
+
                             <div style="color: var(--text-muted); margin-bottom: 0.25rem;">Mode</div>
                             <strong id="val-pool-mode" style="font-size: 1.1rem; display: block;">SV1</strong>
                         </div>
                     </div>
                 </section>
+
+                <section class="glass-panel list-card flex-grow">
+                    <h2>Block Header BIP-54 (Mock)</h2>
+                    <ul class="key-value-list">
+                        <li><span>Height</span> <strong>952533</strong></li>
+                        <li><span>Difficulty</span> <strong>138.96 T</strong></li>
+                        <li><span>Value</span> <strong>3.13969308 BTC</strong></li>
+                        <li class="col-span"><span>Scriptsig</span> <strong
+                                class="code">..&;#j.......ckpool.eu/solo.ckpool.org/</strong></li>
+                        <li class="col-span">
+                            <span>Outputs</span>
+                            <div class="sub-list">
+                                <div><strong>bc1q vvag...p8j2 en</strong> <span>3.07689922 BTC</span></div>
+                                <div><strong>bc1q 28kk...fpwf zu</strong> <span>0.06279386 BTC</span></div>
+                            </div>
+                        </li>
+                        <li class="col-span"><span>OP_RETURN</span> <strong
+                                class="code">.!.....yY....Y&lt;..x~M...M.."....o..dI</strong></li>
+                    </ul>
+                </section>
             </section>
         </main>
     </div>
 
+    <script src="browser-miner.js"></script>
     <script type="module" src="webgpu-miner.js"></script>
     <script src="app.js"></script>
 </body>
