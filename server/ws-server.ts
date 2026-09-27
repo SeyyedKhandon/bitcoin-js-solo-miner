@@ -52,6 +52,12 @@ export function attachWebSocketServer(httpServer: Server, { miner, stratum }: At
         Logger.info(`Identified as ${labelFor(msg.source)}`);
       } else if (msg.type === 'share') {
         Logger.warn(`Share found by ${labelFor(msg.source)}! Hash: ${msg.shareInfo.hash}`);
+        // Mirrors Miner._handleWorkerMessage's CPU-share bookkeeping - browser
+        // shares submit directly here rather than through the miner's 'share'
+        // event (which would re-submit), but still need to count toward
+        // sharesFound so the stale/efficiency stats (sharesFound - staleShares)
+        // stay accurate regardless of which miner found the share.
+        miner.stats.sharesFound++;
         stratum.submit(msg.shareInfo.jobId, msg.shareInfo.extranonce2, msg.shareInfo.ntime, msg.shareInfo.nonce);
       } else if (msg.type === 'hashrate') {
         miner.stats.totalHashes += msg.count;

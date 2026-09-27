@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { Worker } from 'worker_threads';
-import { MiningMethod } from './strategies.ts';
+import { MiningMethod, ALL_MODE_METHODS } from './strategies.ts';
 import { processMiningNotification } from './coinbase-decoder.ts';
 import { getTargetFromNbits, getHashDifficulty } from '../lib/hash.ts';
 import { Logger } from '../lib/logger.ts';
@@ -121,6 +121,16 @@ export class Miner extends EventEmitter {
   }
 
   /**
+   * Records the pool's verdict on a submitted share (see the 'share-result'
+   * event on StratumClient). sharesFound already counts every share the
+   * instant it's found locally, so only rejections need recording here -
+   * getStats() derives the accepted count as sharesFound - staleShares.
+   */
+  recordShareResult(accepted: boolean): void {
+    if (!accepted) this.stats.staleShares++;
+  }
+
+  /**
    * Records a hash for the Latest Hash / Best Hash display. Called for
    * every CPU worker batch, and for any browser miner (WebGPU, browser
    * CPU) that reports one over the WebSocket - see server/ws-server.ts.
@@ -205,8 +215,8 @@ export class Miner extends EventEmitter {
     if (!this.currentJob) return;
 
     if (this.activeMethod === MiningMethod.ALL_MODE) {
-      this.allModeIndex++;
-      if (this.allModeIndex > 12) this.allModeIndex = 1; // 1 is STANDARD; skip 0 (ALL_MODE itself)
+      const currentPos = ALL_MODE_METHODS.indexOf(this.allModeIndex);
+      this.allModeIndex = ALL_MODE_METHODS[(currentPos + 1) % ALL_MODE_METHODS.length];
     }
 
     Logger.info(`Starting job ${this.currentJob.jobId} | Target: ${this.target}`);
@@ -246,9 +256,13 @@ export class Miner extends EventEmitter {
   }
 
   getStats(): MinerStats {
+    // sharesFound counts every share the instant it's found locally (before
+    // the pool has responded); staleShares counts how many of those were
+    // then rejected - so accepted = sharesFound - staleShares.
     let efficiency = '0.00%';
-    if (this.stats.sharesFound + this.stats.staleShares > 0) {
-      efficiency = ((this.stats.sharesFound / (this.stats.sharesFound + this.stats.staleShares)) * 100).toFixed(2) + '%';
+    if (this.stats.sharesFound > 0) {
+      const accepted = this.stats.sharesFound - this.stats.staleShares;
+      efficiency = ((accepted / this.stats.sharesFound) * 100).toFixed(2) + '%';
     }
 
     return {

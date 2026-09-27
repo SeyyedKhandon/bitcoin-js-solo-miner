@@ -12,8 +12,18 @@ export const MiningMethod = {
   ALL_MODE: 0,
   STANDARD: 1,
   TOP_DOWN: 2,
+  /**
+   * @deprecated Broken: flips the header version bits locally to search a
+   * different hash space, but never negotiates BIP320 version-rolling with
+   * the pool (no mining.configure sent, no version field in mining.submit).
+   * The pool reconstructs the header using its own real version, producing
+   * a completely different hash, so any share found this way is rejected.
+   * Kept only so old saved method numbers don't shift; ALL_MODE skips it -
+   * see ALL_MODE_METHODS.
+   */
   INVERTED_VERSION: 3,
   RANDOMIZED: 4,
+  /** @deprecated Same broken version-flipping as INVERTED_VERSION, just combined with randomized nonce search. ALL_MODE skips it. */
   RANDOM_INVERTED: 5,
   GOLDEN_RATIO: 6,
   RANDOM_EN2: 7,
@@ -23,6 +33,25 @@ export const MiningMethod = {
   RANDOM_EN2_MIDDLE: 11,
   LIST_NONCES: 12,
 } as const;
+
+/**
+ * The methods ALL_MODE actually cycles through, in order - excludes
+ * ALL_MODE itself and the deprecated version-flipping methods
+ * (INVERTED_VERSION, RANDOM_INVERTED), which can never produce a
+ * pool-acceptable share.
+ */
+export const ALL_MODE_METHODS: number[] = [
+  MiningMethod.STANDARD,
+  MiningMethod.TOP_DOWN,
+  MiningMethod.RANDOMIZED,
+  MiningMethod.GOLDEN_RATIO,
+  MiningMethod.RANDOM_EN2,
+  MiningMethod.EN2_BIGENDIAN,
+  MiningMethod.CUSTOM_NONCE,
+  MiningMethod.RANDOM_EN2_RIGHT,
+  MiningMethod.RANDOM_EN2_MIDDLE,
+  MiningMethod.LIST_NONCES,
+];
 
 // LIST_NONCES samples from data/bitcoin_last_10000_nonces.txt when present.
 // The file isn't bundled with this project - if it's absent (the normal

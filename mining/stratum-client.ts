@@ -21,6 +21,11 @@ type StratumMessage = StratumResponse | StratumNotification;
  * A minimal Stratum V1 client: connects over TCP, subscribes, authorizes,
  * and emits 'job' events as the pool streams in mining.notify messages.
  */
+interface PendingSubmit {
+  jobId: string;
+  nonce: string;
+}
+
 export class StratumClient extends EventEmitter {
   config: Config;
   client: net.Socket;
@@ -29,6 +34,8 @@ export class StratumClient extends EventEmitter {
   extranonce1: string | null;
   extranonce2_size: number | null;
   difficulty: number | null;
+  authorizeMsgId: number | null;
+  pendingSubmits: Map<number, PendingSubmit>;
 
   constructor(config: Config) {
     super();
@@ -41,6 +48,8 @@ export class StratumClient extends EventEmitter {
     this.extranonce1 = null;
     this.extranonce2_size = null;
     this.difficulty = null;
+    this.authorizeMsgId = null;
+    this.pendingSubmits = new Map();
 
     this._setupEventHandlers();
   }
@@ -86,9 +95,11 @@ export class StratumClient extends EventEmitter {
     this.client.connect(this.config.poolPort, this.config.poolHost);
   }
 
-  send(method: string, params: unknown[] = []): void {
-    const msg = { id: this.msgId++, method, params };
+  send(method: string, params: unknown[] = []): number {
+    const id = this.msgId++;
+    const msg = { id, method, params };
     this.client.write(JSON.stringify(msg) + '\n');
+    return id;
   }
 
   subscribe(): void {
@@ -98,17 +109,35 @@ export class StratumClient extends EventEmitter {
 
   authorize(): void {
     Logger.info(`Sending mining.authorize for ${this.config.workerName}...`);
-    this.send('mining.authorize', [this.config.workerName, this.config.workerPassword]);
+    this.authorizeMsgId = this.send('mining.authorize', [this.config.workerName, this.config.workerPassword]);
   }
 
   submit(jobId: string, extranonce2: string, ntime: string, nonce: string): void {
     Logger.info(`Submitting share for job ${jobId} (nonce: ${nonce})`);
-    this.send('mining.submit', [this.config.workerName, jobId, extranonce2, ntime, nonce]);
+    const id = this.send('mining.submit', [this.config.workerName, jobId, extranonce2, ntime, nonce]);
+    this.pendingSubmits.set(id, { jobId, nonce });
   }
 
   _handleMessage(msg: StratumMessage): void {
     if (msg.id !== null) {
       const response = msg as StratumResponse;
+
+      // Response to a mining.submit we sent - correlate by id first, since a
+      // share-accepted response ({result: true}) is structurally identical
+      // to an authorize-accepted response and would otherwise be
+      // misattributed.
+      if (response.id !== null && this.pendingSubmits.has(response.id)) {
+        const { jobId, nonce } = this.pendingSubmits.get(response.id)!;
+        this.pendingSubmits.delete(response.id);
+        const accepted = response.result === true && !response.error;
+        if (accepted) {
+          Logger.info(`Share accepted (job ${jobId}, nonce ${nonce})`);
+        } else {
+          Logger.warn(`Share rejected (job ${jobId}, nonce ${nonce}): ${JSON.stringify(response.error ?? response.result)}`);
+        }
+        this.emit('share-result', { accepted, jobId, nonce, error: response.error });
+        return;
+      }
 
       // Response to a request we sent
       if (response.error) {
@@ -127,7 +156,7 @@ export class StratumClient extends EventEmitter {
       }
 
       // Authorization response
-      if (response.result === true) {
+      if (response.id === this.authorizeMsgId && response.result === true) {
         Logger.info(`Authorized successfully as ${this.config.workerName}`);
         return;
       }

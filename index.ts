@@ -44,6 +44,10 @@ miner.on('share', (shareInfo: ShareInfo) => {
   stratum.submit(shareInfo.jobId, shareInfo.extranonce2, shareInfo.ntime, shareInfo.nonce);
 });
 
+stratum.on('share-result', ({ accepted }: { accepted: boolean }) => {
+  miner.recordShareResult(accepted);
+});
+
 miner.on('stats', broadcastStats);
 
 server.listen(PORT, () => {
