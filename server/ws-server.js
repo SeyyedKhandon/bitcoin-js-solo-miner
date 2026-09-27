@@ -46,6 +46,9 @@ export function attachWebSocketServer(httpServer, { miner, stratum }) {
         stratum.submit(msg.shareInfo.jobId, msg.shareInfo.extranonce2, msg.shareInfo.ntime, msg.shareInfo.nonce);
       } else if (msg.type === 'hashrate') {
         miner.stats.totalHashes += msg.count;
+        if (msg.latestHash) {
+          miner.recordHash(msg.latestHash, { version: msg.version, en1: msg.en1, en2: msg.en2, nonce: msg.nonce });
+        }
       }
     });
   });

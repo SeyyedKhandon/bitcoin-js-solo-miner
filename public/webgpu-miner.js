@@ -196,12 +196,30 @@ async function mineWebGPULoop() {
         wgMinerState.resultReadBuffer.unmap();
         wgMinerState.hashCount += hashesDone;
 
+        // Compute one real hash (nonce 0 of this batch, using the same header
+        // bytes just sent to the GPU) so the dashboard's Latest/Best Hash
+        // panels have something genuine to show - the shader itself only
+        // reports a count of nonces that beat the target, never a hash value.
+        let latestHash = null;
+        try {
+            const digest1 = await crypto.subtle.digest('SHA-256', swappedHeader);
+            const digest2 = await crypto.subtle.digest('SHA-256', digest1);
+            latestHash = bytesToHex(new Uint8Array(digest2).reverse());
+        } catch (e) {
+            console.error('WebGPU sample hash failed:', e);
+        }
+
         // Send hashrate update
         if (wgMinerState.ws && wgMinerState.ws.readyState === WebSocket.OPEN) {
             wgMinerState.ws.send(JSON.stringify({
                 type: 'hashrate',
                 source: 'webgpu',
-                count: hashesDone
+                count: hashesDone,
+                latestHash,
+                version: job.version,
+                en1: job.extranonce1,
+                en2: extranonce2,
+                nonce: '00000000'
             }));
         }
 

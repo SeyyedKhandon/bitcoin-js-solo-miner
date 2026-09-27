@@ -69,24 +69,34 @@ export class Miner extends EventEmitter {
   _handleWorkerMessage(msg) {
     if (msg.type === 'hashrate') {
       this.stats.totalHashes += msg.count;
-
-      const hashObj = {
-        hash: msg.latestHash,
-        zeros: msg.latestHash.match(/^0*/)[0].length,
-        difficulty: getHashDifficulty(msg.latestHash),
-        version: msg.version,
-        en1: msg.en1,
-        en2: msg.en2,
-        nonce: msg.nonce
-      };
-
-      this.latestHash = hashObj;
-      if (this.bestHash === 'N/A' || hashObj.difficulty > this.bestHash.difficulty) {
-        this.bestHash = hashObj;
-      }
+      this.recordHash(msg.latestHash, { version: msg.version, en1: msg.en1, en2: msg.en2, nonce: msg.nonce });
     } else if (msg.type === 'share') {
       this.stats.sharesFound++;
       this.emit('share', msg.shareInfo);
+    }
+  }
+
+  /**
+   * Records a hash for the Latest Hash / Best Hash display. Called for
+   * every CPU worker batch, and for any browser miner (WebGPU, browser
+   * CPU) that reports one over the WebSocket - see server/ws-server.js.
+   */
+  recordHash(hash, { version, en1, en2, nonce }) {
+    if (!hash) return;
+
+    const hashObj = {
+      hash,
+      zeros: hash.match(/^0*/)[0].length,
+      difficulty: getHashDifficulty(hash),
+      version,
+      en1,
+      en2,
+      nonce
+    };
+
+    this.latestHash = hashObj;
+    if (this.bestHash === 'N/A' || hashObj.difficulty > this.bestHash.difficulty) {
+      this.bestHash = hashObj;
     }
   }
 

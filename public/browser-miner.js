@@ -62,6 +62,8 @@ async function mineLoop() {
 
     const nonceOffset = 76;
     let nonce = Math.floor(Math.random() * 0xFFFFFFFF);
+    let latestHash = null;
+    let latestNonce = nonce;
 
     for (let i = 0; i < 100; i++) {
         if (!minerState.isMining) break;
@@ -72,7 +74,8 @@ async function mineLoop() {
         swappedHeader[nonceOffset + 3] = nonce & 0xFF;
 
         const resultBytes = await hashDoubleSha256(swappedHeader);
-        const resultHex = reverseBytes(bytesToHex(resultBytes));
+        latestHash = reverseBytes(bytesToHex(resultBytes));
+        latestNonce = nonce;
 
         minerState.hashCount++;
         nonce++;
@@ -82,7 +85,12 @@ async function mineLoop() {
         minerState.ws.send(JSON.stringify({
             type: 'hashrate',
             source: 'browser-cpu',
-            count: 100
+            count: 100,
+            latestHash,
+            version: job.version,
+            en1: job.extranonce1,
+            en2: extranonce2,
+            nonce: (latestNonce >>> 0).toString(16).padStart(8, '0')
         }));
     }
 
