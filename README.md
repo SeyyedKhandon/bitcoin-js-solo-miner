@@ -75,11 +75,8 @@ public/
   app.ts                    dashboard logic (SSE consumer, config controls)
   browser-miner.ts          browser CPU miner (Web Crypto)
   webgpu-miner.ts, shader.ts   browser GPU miner and its compute shader
-
-data/
-  bitcoin_last_10000_nonces.txt   nonce samples for the LIST_NONCES strategy
 ```
 
 ### Nonce-search strategies
 
-`mining/strategies.ts` defines twelve ways of walking the 32-bit nonce space (sequential, top-down, randomized, golden-ratio-seeded, several `extranonce2` variants, sampling nonces from real historical blocks, etc.), used to compare how search order affects share-finding. `ALL_MODE` (the default) rotates through them one job at a time; pick a specific one from the dashboard's strategy dropdown, or set `miningMethod` in `config.ts`.
+`mining/strategies.ts` defines twelve ways of walking the 32-bit nonce space (sequential, top-down, randomized, golden-ratio-seeded, several `extranonce2` variants, etc.), used to compare how search order affects share-finding. `ALL_MODE` (the default) rotates through them one job at a time; pick a specific one from the dashboard's strategy dropdown, or set `miningMethod` in `config.ts`. (`LIST_NONCES`, which sampled nonces from a bundled list of real historical blocks, has no data backing it anymore and always uses nonce 0.)
