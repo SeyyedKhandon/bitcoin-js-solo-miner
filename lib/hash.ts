@@ -57,6 +57,9 @@ export function getHashDifficulty(hashHex: string): number {
   const hashBigInt = BigInt(`0x${hashHex}`);
   if (hashBigInt === 0n) return 0;
 
-  // Multiply before dividing to keep some precision as a float
-  return Number(maxTarget * 1000n / hashBigInt) / 1000;
+  // Scale before the (integer) BigInt division so sub-1 difficulties survive.
+  // Scaling by only 1000 truncated everything below difficulty 0.001 to
+  // exactly 0 - which is nearly every hash a CPU/GPU actually finds.
+  const SCALE = 10n ** 18n;
+  return Number((maxTarget * SCALE) / hashBigInt) / 1e18;
 }

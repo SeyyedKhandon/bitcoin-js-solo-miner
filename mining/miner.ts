@@ -149,7 +149,11 @@ export class Miner extends EventEmitter {
     };
 
     this.latestHash = hashObj;
-    if (this.bestHash === 'N/A' || hashObj.difficulty > this.bestHash.difficulty) {
+    // Rank by the hash's own value, not by the derived difficulty float:
+    // difficulty is a rounded approximation, so two hashes whose difficulty
+    // rounds to the same number could never displace each other, which
+    // froze Best Hash on whatever arrived first. Smaller hash = better.
+    if (this.bestHash === 'N/A' || BigInt(`0x${hash}`) < BigInt(`0x${this.bestHash.hash}`)) {
       this.bestHash = hashObj;
     }
   }
