@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bitcoin JS Solo Miner</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="background-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
+    </div>
+
+    <div class="app-container">
+        <header class="glass-panel">
+            <div class="logo">
+                <div class="pulse-ring"></div>
+                <h1>Bitcoin JS Solo Miner</h1>
+            </div>
+            <div class="status-indicator">
+                <span class="dot active"></span>
+                <span id="connection-status">Connecting to Pool...</span>
+            </div>
+        </header>
+
+        <!-- Dashboard Grid -->
+        <main class="dashboard-grid">
+
+            <section class="glass-panel full-width" style="grid-column: 1 / -1;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
+                    <h2 style="margin: 0;">Mining Config</h2>
+                    <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
+                        <button id="toggle-node-mining" style="padding: 0.5rem 1rem; background: #ff5f56; color: #000; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Stop Node CPU Miner</button>
+                        <button id="toggle-webgpu-mining" style="padding: 0.5rem 1rem; background: #61dafb; color: #000; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Start WebGPU Mining</button>
+                        <select id="threads-select"
+                            style="padding: 0.25rem 0.5rem; background: rgba(0,0,0,0.5); color: white; border: 1px solid var(--panel-border); border-radius: 8px; font-size: 0.8rem; cursor: pointer;">
+                            <option value="1">1 Thread</option>
+                            <option value="2">2 Threads</option>
+                            <option value="4">4 Threads</option>
+                            <option value="8">8 Threads</option>
+                            <option value="16">16 Threads</option>
+                            <option value="32">32 Threads</option>
+                        </select>
+                        <select id="protocol-select"
+                            style="padding: 0.25rem 0.5rem; background: rgba(0,0,0,0.5); color: white; border: 1px solid var(--panel-border); border-radius: 8px; font-size: 0.8rem; cursor: pointer;">
+                            <option value="SV1">Stratum V1 (SV1)</option>
+                            <option value="SV2">Stratum V2 (SV2)</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="margin-bottom: 1rem;">
+                    <select id="strategy-select"
+                        style="width: 100%; padding: 0.5rem; background: rgba(0,0,0,0.5); color: white; border: 1px solid var(--panel-border); border-radius: 8px; font-family: var(--font-ui); cursor: pointer;">
+                        <option value="0">0 - ALL_MODE</option>
+                        <option value="1">1 - STANDARD</option>
+                        <option value="2">2 - TOP_DOWN</option>
+                        <option value="3">3 - INVERTED_VERSION</option>
+                        <option value="4">4 - RANDOMIZED</option>
+                        <option value="5">5 - RANDOM_INVERTED</option>
+                        <option value="6">6 - GOLDEN_RATIO</option>
+                        <option value="7">7 - RANDOM_EN2</option>
+                        <option value="8">8 - EN2_BIGENDIAN</option>
+                        <option value="9">9 - CUSTOM_NONCE</option>
+                        <option value="10">10 - RANDOM_EN2_RIGHT</option>
+                        <option value="11">11 - RANDOM_EN2_MIDDLE</option>
+                        <option value="12">12 - LIST_NONCES</option>
+                    </select>
+                </div>
+                <div id="custom-nonce-group" style="display: none;">
+                    <h2>Custom Nonce</h2>
+                    <input type="number" id="custom-nonce-input" value="0"
+                        style="padding: 0.5rem; background: rgba(0,0,0,0.5); color: white; border: 1px solid var(--panel-border); border-radius: 8px; font-family: var(--font-mono); max-width: 150px;">
+                </div>
+            </section>
+
+            <!-- Unified Stats Panel -->
+            <section class="glass-panel full-width" style="grid-column: 1 / -1;">
+                <h2 style="margin-bottom: 1.5rem; font-size: 1.2rem;">Mining Statistics</h2>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem;">
+
+                    <div>
+                        <h3 style="color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; margin-bottom: 0.5rem;">Hashrate</h3>
+                        <div class="stat-value text-accent"><span id="val-hashrate-1s">0</span> <span class="unit" style="font-size: 1rem;">H/s</span></div>
+                        <div class="stat-detail">1m: <strong id="val-hashrate-1m">0</strong> H/s | 1h: <strong id="val-hashrate-1h">0</strong> H/s</div>
+                    </div>
+
+                    <div>
+                        <h3 style="color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; margin-bottom: 0.5rem;">Jobs</h3>
+                        <div class="stat-value"><span id="val-jobs-received">0</span></div>
+                        <div class="stat-detail">Current: <strong id="val-current-job" style="font-family: var(--font-mono); font-size: 0.8rem;">None</strong></div>
+                    </div>
+
+                    <div>
+                        <h3 style="color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; margin-bottom: 0.5rem;">Total Tries</h3>
+                        <div class="stat-value" id="val-total-hashes">0</div>
+                        <div class="stat-detail">Hashes Computed</div>
+                    </div>
+
+                    <div>
+                        <h3 style="color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; margin-bottom: 0.5rem;">Shares Found</h3>
+                        <div class="stat-value text-accent" id="val-shares">0</div>
+                        <div class="stat-detail">Stale: <strong id="val-stale-shares">0</strong> | Eff: <strong id="val-efficiency">0.00</strong></div>
+                    </div>
+
+                    <div>
+                        <h3 style="color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; margin-bottom: 0.5rem;">Network Target</h3>
+                        <div class="stat-value" style="font-size: 1.5rem;" id="val-difficulty">Waiting...</div>
+                        <div class="stat-detail">Nbits: <strong id="val-difficulty-nbits">-</strong></div>
+                        <div class="stat-detail">Target: <strong id="val-target" style="word-break: break-all; font-family: var(--font-mono); font-size: 0.75rem;">-</strong></div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- Hash Details -->
+            <section class="glass-panel detail-card full-width">
+                <div class="card-header">
+                    <h2>Latest Hash Found</h2>
+                    <div>
+                        <span class="badge" id="val-latest-diff">Diff: 0</span>
+                        <span class="badge" id="val-latest-zeros">0 Zeros</span>
+                    </div>
+                </div>
+                <div class="hash-string" id="val-latest-hash">Waiting for first hash...</div>
+                <div class="hash-meta">
+                    <div class="meta-item"><span>Version</span><strong id="val-latest-ver">-</strong></div>
+                    <div class="meta-item"><span>Extranonce 1</span><strong id="val-latest-en1">-</strong></div>
+                    <div class="meta-item"><span>Extranonce 2</span><strong id="val-latest-en2">-</strong></div>
+                    <div class="meta-item"><span>Nonce</span><strong id="val-latest-nonce">-</strong></div>
+                </div>
+            </section>
+
+            <section class="glass-panel detail-card full-width">
+                <div class="card-header">
+                    <h2>Best Hash (Session)</h2>
+                    <div>
+                        <span class="badge badge-gold" id="val-best-diff">Diff: 0</span>
+                        <span class="badge badge-gold" id="val-best-zeros">0 Zeros</span>
+                    </div>
+                </div>
+                <div class="hash-string text-gold" id="val-best-hash">Waiting for first hash...</div>
+                <div class="hash-meta">
+                    <div class="meta-item"><span>Version</span><strong id="val-best-ver">-</strong></div>
+                    <div class="meta-item"><span>Extranonce 1</span><strong id="val-best-en1">-</strong></div>
+                    <div class="meta-item"><span>Extranonce 2</span><strong id="val-best-en2">-</strong></div>
+                    <div class="meta-item"><span>Nonce</span><strong id="val-best-nonce">-</strong></div>
+                </div>
+            </section>
+
+            <!-- Pool Info -->
+            <section class="flex full-width gap-2">
+
+                <section class="glass-panel list-card flex-grow">
+                    <h2 style="margin-bottom: 1.5rem; font-size: 1.5rem;">Pool Info</h2>
+                    <div
+                        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; font-size: 0.9rem;">
+                        <div>
+                            <div style="color: var(--text-muted); margin-bottom: 0.25rem;">URL</div>
+                            <strong id="val-pool-url"
+                                style="font-size: 1.1rem; display: block; margin-bottom: 1.5rem; word-break: break-word;">eusolo.ckpool.org:3333</strong>
+
+                            <div style="color: var(--text-muted); margin-bottom: 0.25rem;">Pool Diff</div>
+                            <strong id="val-pool-diff" style="font-size: 1.1rem; display: block;">-</strong>
+                        </div>
+                        <div>
+                            <div style="color: var(--text-muted); margin-bottom: 0.25rem;">Mode</div>
+                            <strong id="val-pool-mode" style="font-size: 1.1rem; display: block;">SV1</strong>
+                        </div>
+                    </div>
+                </section>
+            </section>
+        </main>
+    </div>
+
+    <script type="module" src="webgpu-miner.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
