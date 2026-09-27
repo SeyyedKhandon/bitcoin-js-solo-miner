@@ -24,13 +24,16 @@ export const MiningMethod = {
   LIST_NONCES: 12,
 } as const;
 
+// LIST_NONCES samples from data/bitcoin_last_10000_nonces.txt when present.
+// The file isn't bundled with this project - if it's absent (the normal
+// case), getRandomNonceFromList() below just falls back to nonce 0.
 let customNoncesList: number[] = [];
 try {
   const dataPath = path.join(__dirname, '..', 'data', 'bitcoin_last_10000_nonces.txt');
   const data = fs.readFileSync(dataPath, 'utf8');
   customNoncesList = data.split(',').map(n => parseInt(n.trim(), 10)).filter(n => !isNaN(n));
 } catch (e) {
-  console.log('Warning: Could not load data/bitcoin_last_10000_nonces.txt');
+  // Expected when the data file isn't present - nothing to warn about.
 }
 
 /** Picks a random nonce from real historical Bitcoin block nonces (MiningMethod.LIST_NONCES). */

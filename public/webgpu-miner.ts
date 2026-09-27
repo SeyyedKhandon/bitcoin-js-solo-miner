@@ -258,7 +258,8 @@ export async function startWebGPUMining(): Promise<void> {
     }
 
     wgMinerState.isMining = true;
-    wgMinerState.ws = new WebSocket(`ws://${window.location.host}`);
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    wgMinerState.ws = new WebSocket(`${wsProtocol}//${window.location.host}`);
 
     wgMinerState.ws.onmessage = (event) => {
         try {

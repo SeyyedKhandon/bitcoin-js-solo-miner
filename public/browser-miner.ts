@@ -130,7 +130,8 @@ function startBrowserMining(): void {
     if (minerState.isMining) return;
     minerState.isMining = true;
 
-    minerState.ws = new WebSocket(`ws://${window.location.host}`);
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    minerState.ws = new WebSocket(`${wsProtocol}//${window.location.host}`);
 
     minerState.ws.onmessage = (event) => {
         try {
