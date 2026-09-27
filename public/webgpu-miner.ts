@@ -203,11 +203,19 @@ async function mineWebGPULoop(): Promise<void> {
         wgMinerState.resultReadBuffer!.unmap();
         wgMinerState.hashCount += hashesDone;
 
-        // Compute one real hash (nonce 0 of this batch, using the same header
-        // bytes just sent to the GPU) so the dashboard's Latest/Best Hash
-        // panels have something genuine to show - the shader itself only
-        // reports a count of nonces that beat the target, never a hash value.
+        // Compute one real hash per dispatch, at a random nonce, using the
+        // same header bytes just sent to the GPU - purely so the dashboard's
+        // Latest/Best Hash panels have something genuine (and changing) to
+        // show. The shader itself only reports a count of nonces that beat
+        // the target, never a hash value; a fixed nonce here would make the
+        // displayed hash freeze until the next pool job, since nothing else
+        // about the header changes between dispatches of the same job.
         let latestHash: string | null = null;
+        const sampleNonce = Math.floor(Math.random() * 0x100000000) >>> 0;
+        swappedHeader[76] = (sampleNonce >>> 24) & 0xFF;
+        swappedHeader[77] = (sampleNonce >>> 16) & 0xFF;
+        swappedHeader[78] = (sampleNonce >>> 8) & 0xFF;
+        swappedHeader[79] = sampleNonce & 0xFF;
         try {
             const digest1 = await crypto.subtle.digest('SHA-256', swappedHeader);
             const digest2 = await crypto.subtle.digest('SHA-256', digest1);
@@ -226,7 +234,7 @@ async function mineWebGPULoop(): Promise<void> {
                 version: job.version,
                 en1: job.extranonce1,
                 en2: extranonce2,
-                nonce: '00000000'
+                nonce: sampleNonce.toString(16).padStart(8, '0')
             }));
         }
 
