@@ -119,11 +119,18 @@ header {
     border-radius: 16px;
     padding: 1.5rem;
     transition: transform 0.2s ease, box-shadow 0.2s ease;
+    /* backdrop-filter makes each panel its own stacking context, so a
+       tooltip inside one cannot paint above a later sibling panel no
+       matter how high its own z-index is - see .glass-panel:hover. */
+    position: relative;
 }
 
 .glass-panel:hover {
     transform: translateY(-2px);
     box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    /* Lift the hovered panel above its siblings so its tooltips are not
+       clipped behind the panels that follow it in the document. */
+    z-index: 20;
 }
 
 .stat-card h2 {
@@ -315,6 +322,11 @@ header {
     transform: translateX(-50%);
     background: rgba(10, 11, 16, 0.98);
     color: var(--text-main);
+    /* Undo any gradient-text trick inherited from the host element (e.g.
+       .logo h1), which would otherwise render the tooltip text invisible. */
+    -webkit-text-fill-color: var(--text-main);
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
     border: 1px solid var(--panel-border);
     padding: 0.6rem 0.8rem;
     border-radius: 8px;
@@ -351,4 +363,19 @@ header {
     left: auto;
     right: 0;
     transform: none;
+}
+
+/* Tooltips default to opening upward, which clips off-screen for elements
+   near the very top of the page (the header) - open these downward instead. */
+[data-tooltip].tooltip-down::after {
+    bottom: auto;
+    top: calc(100% + 8px);
+    transform-origin: top center;
+}
+
+/* Version badge tooltip: preserves the newline-separated changelog bullets */
+#app-version::after {
+    white-space: pre-line;
+    text-align: left;
+    max-width: 340px;
 }

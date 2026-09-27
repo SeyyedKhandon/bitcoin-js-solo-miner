@@ -22,11 +22,12 @@
         <header class="glass-panel">
             <div class="logo">
                 <div class="pulse-ring"></div>
-                <h1 data-tooltip="A Bitcoin solo miner that runs entirely in Node.js: it speaks the Stratum protocol to a pool, hashes block headers looking for a valid nonce, and can also mine from your browser via CPU (WebCrypto) or GPU (WebGPU).">Bitcoin JS Solo Miner</h1>
+                <h1 class="tooltip-down" data-tooltip="A Bitcoin solo miner that runs entirely in Node.js: it speaks the Stratum protocol to a pool, hashes block headers looking for a valid nonce, and can also mine from your browser via CPU (WebCrypto) or GPU (WebGPU).">Bitcoin JS Solo Miner</h1>
+                <span id="app-version" class="badge tooltip-down" data-tooltip="Loading version info…">v…</span>
             </div>
             <div class="status-indicator">
                 <span class="dot active"></span>
-                <span id="connection-status" data-tooltip="Whether the server-sent-events stream from this page to the Node.js server is connected. This is the browser-to-server link, not the server-to-pool link — check the server's own console log for pool connection status.">Connecting to Pool...</span>
+                <span id="connection-status" class="tooltip-down" data-tooltip="Whether the server-sent-events stream from this page to the Node.js server is connected. This is the browser-to-server link, not the server-to-pool link — check the server's own console log for pool connection status.">Connecting to Pool...</span>
             </div>
         </header>
 

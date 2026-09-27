@@ -1,9 +1,11 @@
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { config } from './config.ts';
 import { StratumClient } from './mining/stratum-client.ts';
 import { Miner } from './mining/miner.ts';
 import { Logger } from './lib/logger.ts';
+import { parseLatestChangelogEntry } from './lib/changelog.ts';
 import { createHttpServer } from './server/http-server.ts';
 import { attachWebSocketServer, broadcastJob } from './server/ws-server.ts';
 import type { MiningJob, ShareInfo } from './lib/types.ts';
@@ -18,11 +20,20 @@ Logger.info('Starting Bitcoin JS Solo Miner...');
 const stratum = new StratumClient(config);
 const miner = new Miner();
 
+const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
+const changelogEntry = parseLatestChangelogEntry(path.join(__dirname, 'CHANGELOG.md'));
+const versionInfo = {
+  version: packageJson.version as string,
+  date: changelogEntry?.date ?? '',
+  changes: changelogEntry?.changes ?? []
+};
+
 const { server, broadcastStats } = createHttpServer({
   miner,
   stratum,
   config,
-  publicDir: path.join(__dirname, 'public')
+  publicDir: path.join(__dirname, 'public'),
+  versionInfo
 });
 
 const wss = attachWebSocketServer(server, { miner, stratum });

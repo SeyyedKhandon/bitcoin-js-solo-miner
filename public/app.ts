@@ -148,6 +148,19 @@ function diffSuffix(value: number): string {
     return power > 0 ? scaled.toFixed(2) + space + suffix : scaled.toFixed(0) + space + suffix;
 }
 
+/**
+ * Formats a single hash's difficulty. These are almost always far below 1
+ * (a 4-leading-zero hash is ~0.0000002), so rounding to 2 decimals like the
+ * network difficulty would render every one of them as a useless "0".
+ */
+function hashDiffText(value: number): string {
+    if (!value || value <= 0) return '0';
+    // diffSuffix drops the decimals below 1000 (1.5 -> "1"), so only hand it
+    // the big values it was written for.
+    if (value >= 1000) return diffSuffix(value);
+    return value.toPrecision(3).replace(/(\.\d*?)0+(e|$)/, '$1$2').replace(/\.(e|$)/, '$1');
+}
+
 function satsToBtc(satoshis: number): string {
     if (!satoshis) return '0 BTC';
     return (satoshis / 100_000_000).toFixed(8) + ' BTC';
@@ -262,7 +275,7 @@ evtSource.onmessage = (event: MessageEvent) => {
     // Update Latest Hash
     if (data.latestHash && data.latestHash !== 'N/A') {
         els.latestZeros.textContent = `${data.latestHash.zeros} Zeros`;
-        els.latestDiff.textContent = `Diff: ${formatNumber(Number(data.latestHash.difficulty.toFixed(2)))}`;
+        els.latestDiff.textContent = `Diff: ${hashDiffText(data.latestHash.difficulty)}`;
         els.latestHash.textContent = data.latestHash.hash;
         els.latestVer.textContent = data.latestHash.version || '-';
         els.latestEn1.textContent = data.latestHash.en1 || '-';
@@ -273,7 +286,7 @@ evtSource.onmessage = (event: MessageEvent) => {
     // Update Best Hash
     if (data.bestHash && data.bestHash !== 'N/A') {
         els.bestZeros.textContent = `${data.bestHash.zeros} Zeros`;
-        els.bestDiff.textContent = `Diff: ${formatNumber(Number(data.bestHash.difficulty.toFixed(2)))}`;
+        els.bestDiff.textContent = `Diff: ${hashDiffText(data.bestHash.difficulty)}`;
         els.bestHash.textContent = data.bestHash.hash;
         els.bestVer.textContent = data.bestHash.version || '-';
         els.bestEn1.textContent = data.bestHash.en1 || '-';
@@ -287,7 +300,32 @@ evtSource.onmessage = (event: MessageEvent) => {
     }
 };
 
+interface VersionInfo {
+    version: string;
+    date: string;
+    changes: string[];
+}
+
+async function loadVersionInfo(): Promise<void> {
+    const versionEl = document.getElementById('app-version');
+    if (!versionEl) return;
+    try {
+        const res = await fetch('/api/version');
+        const info: VersionInfo = await res.json();
+        versionEl.textContent = `v${info.version}`;
+        const changesText = info.changes.length ? info.changes.map(c => `• ${c}`).join('\n') : 'No changelog entry found.';
+        const heading = info.date ? `v${info.version} — published ${info.date}` : `v${info.version}`;
+        versionEl.setAttribute('data-tooltip', `${heading}\n${changesText}`);
+    } catch (err) {
+        console.error('Failed to load version info', err);
+        versionEl.textContent = 'v?';
+        versionEl.setAttribute('data-tooltip', 'Could not load version info.');
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+    loadVersionInfo();
+
     const strategySelect = document.getElementById('strategy-select') as HTMLSelectElement | null;
     const customNonceGroup = document.getElementById('custom-nonce-group') as HTMLElement | null;
     const customNonceInput = document.getElementById('custom-nonce-input') as HTMLInputElement | null;

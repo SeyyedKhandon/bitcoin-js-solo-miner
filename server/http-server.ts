@@ -14,11 +14,18 @@ const MIME_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml'
 };
 
+interface VersionInfo {
+  version: string;
+  date: string;
+  changes: string[];
+}
+
 interface CreateHttpServerOptions {
   miner: Miner;
   stratum: StratumClient;
   config: Config;
   publicDir: string;
+  versionInfo: VersionInfo;
 }
 
 /**
@@ -26,7 +33,7 @@ interface CreateHttpServerOptions {
  * exposes a small REST API to control the miner, and streams live stats
  * over Server-Sent Events at /api/events.
  */
-export function createHttpServer({ miner, stratum, config, publicDir }: CreateHttpServerOptions) {
+export function createHttpServer({ miner, stratum, config, publicDir, versionInfo }: CreateHttpServerOptions) {
   const sseClients = new Set<http.ServerResponse>();
 
   const server = http.createServer((req, res) => {
@@ -39,6 +46,12 @@ export function createHttpServer({ miner, stratum, config, publicDir }: CreateHt
       });
       sseClients.add(res);
       req.on('close', () => sseClients.delete(res));
+      return;
+    }
+
+    if (req.url === '/api/version') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(versionInfo));
       return;
     }
 
