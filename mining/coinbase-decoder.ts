@@ -1,12 +1,18 @@
 import { getTargetFromNbits, getHashDifficulty } from '../lib/hash.js';
 import { decodeAddressFromScriptPubKey } from '../lib/bitcoin-address.js';
+import type { MiningJob, MiningNotificationResult } from '../lib/types.js';
 
 const MAX_DISPLAYED_OUTPUTS = 20;
 const BIP110_SIGNAL_BIT = 4;
 const BIP110_SIGNAL_EXPIRY_BLOCK = 965664;
 
+interface VarintResult {
+  value: number;
+  offset: number;
+}
+
 /** Reads a Bitcoin varint starting at `offset`; returns { value, offset: nextOffset }. */
-export function decodeVarint(buf, offset) {
+export function decodeVarint(buf: Buffer, offset: number): VarintResult {
   const first = buf[offset];
   offset += 1;
 
@@ -20,7 +26,7 @@ export function decodeVarint(buf, offset) {
   return { value: Number(buf.readBigUInt64LE(offset)), offset: offset + 8 };
 }
 
-function detectNetwork(userAddress) {
+function detectNetwork(userAddress: string | undefined): { hrp: string; isTestnet: boolean } {
   if (userAddress) {
     if (userAddress.startsWith('bcrt1')) return { hrp: 'bcrt', isTestnet: true };
     if (userAddress.startsWith('tb1')) return { hrp: 'tb', isTestnet: true };
@@ -41,10 +47,15 @@ function detectNetwork(userAddress) {
  * pools use; callers should treat that as "couldn't decode this job" rather
  * than a fatal error.
  */
-export function processMiningNotification(job, extranonce1Hex, extranonce2Len, userAddress) {
+export function processMiningNotification(
+  job: MiningJob,
+  extranonce1Hex: string,
+  extranonce2Len: number,
+  userAddress: string | undefined
+): MiningNotificationResult {
   const { hrp, isTestnet } = detectNetwork(userAddress);
 
-  const result = {
+  const result: MiningNotificationResult = {
     networkDifficulty: getHashDifficulty(getTargetFromNbits(job.nbits)),
     blockHeight: 0,
     scriptsig: null,

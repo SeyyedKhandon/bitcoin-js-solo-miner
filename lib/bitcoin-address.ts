@@ -15,7 +15,7 @@ const OP_CHECKSIG = 0xac;
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
 /** Base58Check-encodes a version byte + payload hash (used for P2PKH/P2SH addresses). */
-export function base58CheckEncode(version, hash) {
+export function base58CheckEncode(version: number, hash: Buffer | Uint8Array): string {
   const payload = Buffer.concat([Buffer.from([version]), hash]);
   const checksum = doubleSha256(payload).subarray(0, 4);
   const full = Buffer.concat([payload, checksum]);
@@ -39,7 +39,7 @@ const BECH32_CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
 const BECH32_CONST = 1;
 const BECH32M_CONST = 0x2bc830a3;
 
-function bech32Polymod(values) {
+function bech32Polymod(values: number[]): number {
   const GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
   let chk = 1;
   for (const v of values) {
@@ -52,25 +52,25 @@ function bech32Polymod(values) {
   return chk >>> 0;
 }
 
-function bech32HrpExpand(hrp) {
-  const out = [];
+function bech32HrpExpand(hrp: string): number[] {
+  const out: number[] = [];
   for (const c of hrp) out.push(c.charCodeAt(0) >> 5);
   out.push(0);
   for (const c of hrp) out.push(c.charCodeAt(0) & 31);
   return out;
 }
 
-function bech32CreateChecksum(hrp, data, constValue) {
+function bech32CreateChecksum(hrp: string, data: number[], constValue: number): number[] {
   const values = [...bech32HrpExpand(hrp), ...data, 0, 0, 0, 0, 0, 0];
   const mod = bech32Polymod(values) ^ constValue;
-  const result = [];
+  const result: number[] = [];
   for (let i = 0; i < 6; i++) result.push((mod >>> (5 * (5 - i))) & 31);
   return result;
 }
 
-function convertBits(data, fromBits, toBits, pad) {
+function convertBits(data: number[], fromBits: number, toBits: number, pad: boolean): number[] {
   let acc = 0, bits = 0;
-  const ret = [];
+  const ret: number[] = [];
   const maxv = (1 << toBits) - 1;
   for (const value of data) {
     acc = (acc << fromBits) | value;
@@ -85,7 +85,7 @@ function convertBits(data, fromBits, toBits, pad) {
 }
 
 /** Encodes a witness program as a bech32 (v0) or bech32m (v1+) segwit address. */
-export function segwitAddrEncode(hrp, witver, program) {
+export function segwitAddrEncode(hrp: string, witver: number, program: Buffer | Uint8Array): string {
   const constValue = witver === 0 ? BECH32_CONST : BECH32M_CONST;
   const data = [witver, ...convertBits([...program], 8, 5, true)];
   const checksum = bech32CreateChecksum(hrp, data, constValue);
@@ -93,8 +93,8 @@ export function segwitAddrEncode(hrp, witver, program) {
   return hrp + '1' + combined.map(d => BECH32_CHARSET[d]).join('');
 }
 
-function bin2hex(buf) {
-  return buf.toString('hex');
+function bin2hex(buf: Buffer | Uint8Array): string {
+  return Buffer.from(buf).toString('hex');
 }
 
 /**
@@ -103,7 +103,7 @@ function bin2hex(buf) {
  * data-carrying outputs (e.g. the SegWit witness commitment), or a hex dump
  * for anything else - mirroring ESP-Miner's coinbase_decode_address_from_scriptpubkey.
  */
-export function decodeAddressFromScriptPubKey(script, hrp, isTestnet) {
+export function decodeAddressFromScriptPubKey(script: Buffer, hrp: string, isTestnet: boolean): string {
   const len = script.length;
   if (len === 0) return 'unknown';
 

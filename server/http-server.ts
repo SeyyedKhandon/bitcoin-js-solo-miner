@@ -1,8 +1,11 @@
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+import type { Miner } from '../mining/miner.js';
+import type { StratumClient } from '../mining/stratum-client.js';
+import type { Config, MinerStats } from '../lib/types.js';
 
-const MIME_TYPES = {
+const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html',
   '.js': 'text/javascript',
   '.css': 'text/css',
@@ -11,13 +14,20 @@ const MIME_TYPES = {
   '.svg': 'image/svg+xml'
 };
 
+interface CreateHttpServerOptions {
+  miner: Miner;
+  stratum: StratumClient;
+  config: Config;
+  publicDir: string;
+}
+
 /**
  * Creates the HTTP server: serves the browser dashboard from `publicDir`,
  * exposes a small REST API to control the miner, and streams live stats
  * over Server-Sent Events at /api/events.
  */
-export function createHttpServer({ miner, stratum, config, publicDir }) {
-  const sseClients = new Set();
+export function createHttpServer({ miner, stratum, config, publicDir }: CreateHttpServerOptions) {
+  const sseClients = new Set<http.ServerResponse>();
 
   const server = http.createServer((req, res) => {
     if (req.url === '/api/events') {
@@ -33,7 +43,7 @@ export function createHttpServer({ miner, stratum, config, publicDir }) {
     }
 
     if (req.url === '/api/strategy' && req.method === 'POST') {
-      return readJsonBody(req, res, (payload) => {
+      return readJsonBody(req, res, (payload: any) => {
         const method = parseInt(payload.method, 10);
         const customNonce = parseInt(payload.customNonce, 10) || 0;
         if (isNaN(method) || method < 0 || method > 12) {
@@ -45,7 +55,7 @@ export function createHttpServer({ miner, stratum, config, publicDir }) {
     }
 
     if (req.url === '/api/pool' && req.method === 'POST') {
-      return readJsonBody(req, res, (payload) => {
+      return readJsonBody(req, res, (payload: any) => {
         const { host, protocol } = payload;
         const port = parseInt(payload.port, 10);
         if (!host || !port) throw new Error('Invalid config');
@@ -68,7 +78,7 @@ export function createHttpServer({ miner, stratum, config, publicDir }) {
     }
 
     if (req.url === '/api/threads' && req.method === 'POST') {
-      return readJsonBody(req, res, (payload) => {
+      return readJsonBody(req, res, (payload: any) => {
         if (payload.threads) {
           config.threads = payload.threads;
           miner.setThreads(payload.threads);
@@ -78,7 +88,7 @@ export function createHttpServer({ miner, stratum, config, publicDir }) {
     }
 
     if (req.url === '/api/miner-toggle' && req.method === 'POST') {
-      return readJsonBody(req, res, (payload) => {
+      return readJsonBody(req, res, (payload: any) => {
         if (payload.state === 'stop') {
           miner.stop();
         } else {
@@ -91,7 +101,7 @@ export function createHttpServer({ miner, stratum, config, publicDir }) {
     serveStaticFile(req, res, publicDir);
   });
 
-  function broadcastStats(stats) {
+  function broadcastStats(stats: MinerStats): void {
     const data = `data: ${JSON.stringify(stats)}\n\n`;
     for (const client of sseClients) client.write(data);
   }
@@ -99,7 +109,11 @@ export function createHttpServer({ miner, stratum, config, publicDir }) {
   return { server, broadcastStats };
 }
 
-function readJsonBody(req, res, handler) {
+function readJsonBody(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  handler: (payload: any) => unknown
+): void {
   let body = '';
   req.on('data', (chunk) => { body += chunk; });
   req.on('end', () => {
@@ -109,13 +123,13 @@ function readJsonBody(req, res, handler) {
       res.end(JSON.stringify(result));
     } catch (err) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: err.message || 'Invalid request' }));
+      res.end(JSON.stringify({ error: (err as Error).message || 'Invalid request' }));
     }
   });
 }
 
-function serveStaticFile(req, res, publicDir) {
-  const urlPath = req.url === '/' ? 'index.html' : decodeURIComponent(req.url.split('?')[0]);
+function serveStaticFile(req: http.IncomingMessage, res: http.ServerResponse, publicDir: string): void {
+  const urlPath = req.url === '/' ? 'index.html' : decodeURIComponent((req.url || '').split('?')[0]);
   const filePath = path.normalize(path.join(publicDir, urlPath));
 
   // Keep requests confined to publicDir (blocks '../' traversal)

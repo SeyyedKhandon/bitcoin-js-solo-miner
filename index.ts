@@ -6,6 +6,7 @@ import { Miner } from './mining/miner.js';
 import { Logger } from './lib/logger.js';
 import { createHttpServer } from './server/http-server.js';
 import { attachWebSocketServer, broadcastJob } from './server/ws-server.js';
+import type { MiningJob, ShareInfo } from './lib/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = 8080;
@@ -19,12 +20,14 @@ const { server, broadcastStats } = createHttpServer({
   miner,
   stratum,
   config,
-  publicDir: path.join(__dirname, 'public')
+  // __dirname is dist/ at runtime (compiled from index.ts), so one level up
+  // reaches the repo root's public/ folder.
+  publicDir: path.join(__dirname, '..', 'public')
 });
 
 const wss = attachWebSocketServer(server, { miner, stratum });
 
-stratum.on('job', (job, difficulty) => {
+stratum.on('job', (job: MiningJob, difficulty: number) => {
   if (job.clean_jobs) miner.interruptWorkers();
   miner.startNewJob(job, difficulty);
   broadcastJob(wss, { ...job, target: miner.target }, difficulty);
@@ -36,7 +39,7 @@ stratum.on('disconnected', () => {
   setTimeout(() => stratum.connect(), 5000);
 });
 
-miner.on('share', (shareInfo) => {
+miner.on('share', (shareInfo: ShareInfo) => {
   Logger.warn(`Valid share found! Hash: ${shareInfo.hash}`);
   stratum.submit(shareInfo.jobId, shareInfo.extranonce2, shareInfo.ntime, shareInfo.nonce);
 });

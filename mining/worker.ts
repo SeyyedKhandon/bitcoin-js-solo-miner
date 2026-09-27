@@ -2,8 +2,19 @@ import { parentPort } from 'worker_threads';
 import crypto from 'crypto';
 import { doubleSha256, doubleSha256Pair } from '../lib/hash.js';
 import { MiningMethod, getRandomNonceFromList } from './strategies.js';
+import type { MiningJob, WorkerInboundMessage, WorkerStartPayload } from '../lib/types.js';
 
-let state = {
+if (!parentPort) {
+  throw new Error('mining/worker.ts must be run as a worker_threads Worker');
+}
+const port = parentPort;
+
+interface WorkerState extends Omit<WorkerStartPayload, 'job'> {
+  isMining: boolean;
+  job: MiningJob | null;
+}
+
+let state: WorkerState = {
   isMining: false,
   job: null,
   target: '',
@@ -15,8 +26,8 @@ let state = {
   totalThreads: 1
 };
 
-function getExtranonce2(method) {
-  const size = state.job.extranonce2_size;
+function getExtranonce2(method: number): string {
+  const size = state.job!.extranonce2_size;
   const en2Buf = Buffer.allocUnsafe(size);
   en2Buf.fill(0);
 
@@ -41,8 +52,8 @@ function getExtranonce2(method) {
   return en2Buf.toString('hex');
 }
 
-function calculateMerkleRoot(extranonce2) {
-  const { coinb1, extranonce1, coinb2, merkle_branch } = state.job;
+function calculateMerkleRoot(extranonce2: string): string {
+  const { coinb1, extranonce1, coinb2, merkle_branch } = state.job!;
   const coinbase = coinb1 + extranonce1 + extranonce2 + coinb2;
   let hash = doubleSha256(Buffer.from(coinbase, 'hex')).toString('hex');
   for (const branch of merkle_branch) {
@@ -51,7 +62,7 @@ function calculateMerkleRoot(extranonce2) {
   return hash;
 }
 
-const RANDOM_METHODS = [
+const RANDOM_METHODS: number[] = [
   MiningMethod.RANDOMIZED, MiningMethod.RANDOM_INVERTED,
   MiningMethod.GOLDEN_RATIO, MiningMethod.RANDOM_EN2,
   MiningMethod.RANDOM_EN2_RIGHT, MiningMethod.RANDOM_EN2_MIDDLE,
@@ -60,7 +71,7 @@ const RANDOM_METHODS = [
 
 let currentNonce = 0;
 
-function mineChunk() {
+function mineChunk(): void {
   if (!state.isMining || !state.job) return;
 
   const CHUNK_SIZE = 5000;
@@ -128,7 +139,8 @@ function mineChunk() {
   baseHeaderBuf.copy(header, 0);
 
   const targetBigInt = BigInt(`0x${state.target}`);
-  const isBounded = ![MiningMethod.CUSTOM_NONCE, MiningMethod.LIST_NONCES].includes(appliedMethod);
+  const unboundedMethods: number[] = [MiningMethod.CUSTOM_NONCE, MiningMethod.LIST_NONCES];
+  const isBounded = !unboundedMethods.includes(appliedMethod);
 
   let hashesDone = 0;
 
@@ -136,7 +148,7 @@ function mineChunk() {
     if ((isBounded && nonce > startNonce + chunkSpace) || nonce > 0xFFFFFFFF) {
       state.extranonce2Counter++;
       currentNonce = 0;
-      parentPort.postMessage({ type: 'hashrate', count: hashesDone, latestHash: doubleSha256(header).reverse().toString('hex') });
+      port.postMessage({ type: 'hashrate', count: hashesDone, latestHash: doubleSha256(header).reverse().toString('hex') });
       setImmediate(mineChunk);
       return;
     }
@@ -151,7 +163,7 @@ function mineChunk() {
     if (hashBigInt <= targetBigInt) {
       const nonceBuffer = Buffer.allocUnsafe(4);
       nonceBuffer.writeUInt32BE(nonce, 0); // Pool wants big-endian
-      parentPort.postMessage({
+      port.postMessage({
         type: 'share',
         shareInfo: {
           jobId: state.job.jobId,
@@ -172,7 +184,7 @@ function mineChunk() {
   const nonceBuffer = Buffer.allocUnsafe(4);
   nonceBuffer.writeUInt32BE(nonce >>> 0, 0);
 
-  parentPort.postMessage({
+  port.postMessage({
     type: 'hashrate',
     count: hashesDone,
     latestHash: doubleSha256(header).reverse().toString('hex'),
@@ -185,7 +197,7 @@ function mineChunk() {
   if (state.isMining) setImmediate(mineChunk);
 }
 
-parentPort.on('message', (msg) => {
+port.on('message', (msg: WorkerInboundMessage) => {
   if (msg.type === 'start') {
     const wasMining = state.isMining;
     state = { ...state, ...msg.payload, isMining: true };

@@ -1,4 +1,6 @@
-export const config = {
+import type { Config } from './lib/types.js';
+
+export const config: Config = {
   // Pool settings
   poolHost: "eusolo.ckpool.org",
   poolPort: 3333,
@@ -12,7 +14,7 @@ export const config = {
   // Logging configuration
   logLevel: "info", // 'debug', 'info', 'warn', or 'error'
 
-  // Mining strategy (see mining/strategies.js for the full list)
+  // Mining strategy (see mining/strategies.ts for the full list)
   miningMethod: 0, // 0 = ALL_MODE (cycles through every strategy)
   customNonce: 0,
   threads: 1,

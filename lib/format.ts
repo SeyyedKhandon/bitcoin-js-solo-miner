@@ -1,7 +1,7 @@
 const SUFFIXES = ['', 'K', 'M', 'G', 'T', 'P', 'E'];
 
 /** Formats a large number with a magnitude suffix, e.g. 138_960_000_000_000 -> "138.96 T". */
-export function diffSuffix(value) {
+export function diffSuffix(value: number): string {
   if (value == null || value < 0) return '0';
   if (value === 0) return '0';
 
@@ -14,7 +14,7 @@ export function diffSuffix(value) {
 }
 
 /** Formats a satoshi amount as a BTC string, e.g. 313969308 -> "3.13969308 BTC". */
-export function satsToBtc(satoshis) {
+export function satsToBtc(satoshis: number): string {
   if (!satoshis) return '0 BTC';
   return (satoshis / 100_000_000).toFixed(8) + ' BTC';
 }

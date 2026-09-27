@@ -1,13 +1,22 @@
 import { WebSocketServer, WebSocket } from 'ws';
+import type { Server } from 'http';
 import { Logger } from '../lib/logger.js';
+import type { Miner } from '../mining/miner.js';
+import type { StratumClient } from '../mining/stratum-client.js';
+import type { BrowserWsMessage, MinerSource } from '../lib/types.js';
 
-const SOURCE_LABELS = {
+const SOURCE_LABELS: Record<MinerSource, string> = {
   'browser-cpu': 'browser CPU miner',
   'webgpu': 'browser WebGPU miner'
 };
 
-function labelFor(source) {
-  return SOURCE_LABELS[source] || 'browser client';
+function labelFor(source: MinerSource | undefined): string {
+  return (source && SOURCE_LABELS[source]) || 'browser client';
+}
+
+interface AttachWebSocketServerOptions {
+  miner: Miner;
+  stratum: StratumClient;
 }
 
 /**
@@ -16,7 +25,7 @@ function labelFor(source) {
  * via the Stratum client. Both miner types share this one endpoint; each
  * message carries a `source` field so logging can tell them apart.
  */
-export function attachWebSocketServer(httpServer, { miner, stratum }) {
+export function attachWebSocketServer(httpServer: Server, { miner, stratum }: AttachWebSocketServerOptions): WebSocketServer {
   const wss = new WebSocketServer({ server: httpServer });
 
   wss.on('connection', (ws) => {
@@ -30,10 +39,10 @@ export function attachWebSocketServer(httpServer, { miner, stratum }) {
       }));
     }
 
-    ws.on('message', (raw) => {
-      let msg;
+    ws.on('message', (raw: Buffer) => {
+      let msg: BrowserWsMessage;
       try {
-        msg = JSON.parse(raw);
+        msg = JSON.parse(raw.toString());
       } catch {
         Logger.error('Invalid WS message from browser');
         return;
@@ -57,7 +66,7 @@ export function attachWebSocketServer(httpServer, { miner, stratum }) {
 }
 
 /** Broadcasts a new pool job to every connected browser miner. */
-export function broadcastJob(wss, job, difficulty) {
+export function broadcastJob(wss: WebSocketServer, job: unknown, difficulty: number | null): void {
   const message = JSON.stringify({ type: 'job', job, difficulty });
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) client.send(message);

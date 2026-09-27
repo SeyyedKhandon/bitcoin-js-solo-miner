@@ -5,8 +5,22 @@ import { processMiningNotification } from './coinbase-decoder.js';
 import { getTargetFromNbits, getHashDifficulty } from '../lib/hash.js';
 import { Logger } from '../lib/logger.js';
 import { config } from '../config.js';
+import type {
+  MiningJob,
+  MiningNotificationResult,
+  HashRecord,
+  MinerStats,
+  WorkerOutboundMessage
+} from '../lib/types.js';
 
 const workerUrl = new URL('./worker.js', import.meta.url);
+
+interface HashMeta {
+  version?: string;
+  en1?: string;
+  en2?: string;
+  nonce?: string;
+}
 
 /**
  * Coordinates a pool of CPU worker threads, tracks hashrate/share stats,
@@ -15,6 +29,36 @@ const workerUrl = new URL('./worker.js', import.meta.url);
  * doesn't spin up CPU mining on its own the moment it connects to a pool.
  */
 export class Miner extends EventEmitter {
+  activeMethod: number;
+  allModeIndex: number;
+  customNonce: number;
+
+  currentJob: MiningJob | null;
+  poolDifficulty: number;
+  target: string;
+  blockHeader: MiningNotificationResult | null;
+  isMining: boolean;
+  jobsReceived: number;
+
+  totalThreads: number;
+  workers: Worker[];
+
+  stats: {
+    hashrate1s: number;
+    hashrate1m: number;
+    hashrate1h: number;
+    totalHashes: number;
+    sharesFound: number;
+    staleShares: number;
+  };
+
+  bestHash: HashRecord | 'N/A';
+  latestHash: HashRecord | 'N/A';
+
+  history1m: number[];
+  history1h: number[];
+  lastHashes: number;
+
   constructor() {
     super();
     this.activeMethod = config.miningMethod ?? MiningMethod.ALL_MODE;
@@ -52,7 +96,7 @@ export class Miner extends EventEmitter {
     this.initWorkers();
   }
 
-  initWorkers() {
+  initWorkers(): void {
     for (const w of this.workers) w.terminate();
     this.workers = [];
 
@@ -60,13 +104,13 @@ export class Miner extends EventEmitter {
 
     for (let i = 0; i < this.totalThreads; i++) {
       const worker = new Worker(workerUrl);
-      worker.on('message', (msg) => this._handleWorkerMessage(msg));
-      worker.on('error', (err) => Logger.error(`Worker error: ${err.message}`));
+      worker.on('message', (msg: WorkerOutboundMessage) => this._handleWorkerMessage(msg));
+      worker.on('error', (err: Error) => Logger.error(`Worker error: ${err.message}`));
       this.workers.push(worker);
     }
   }
 
-  _handleWorkerMessage(msg) {
+  _handleWorkerMessage(msg: WorkerOutboundMessage): void {
     if (msg.type === 'hashrate') {
       this.stats.totalHashes += msg.count;
       this.recordHash(msg.latestHash, { version: msg.version, en1: msg.en1, en2: msg.en2, nonce: msg.nonce });
@@ -79,14 +123,14 @@ export class Miner extends EventEmitter {
   /**
    * Records a hash for the Latest Hash / Best Hash display. Called for
    * every CPU worker batch, and for any browser miner (WebGPU, browser
-   * CPU) that reports one over the WebSocket - see server/ws-server.js.
+   * CPU) that reports one over the WebSocket - see server/ws-server.ts.
    */
-  recordHash(hash, { version, en1, en2, nonce }) {
+  recordHash(hash: string | null | undefined, { version, en1, en2, nonce }: HashMeta): void {
     if (!hash) return;
 
-    const hashObj = {
+    const hashObj: HashRecord = {
       hash,
-      zeros: hash.match(/^0*/)[0].length,
+      zeros: hash.match(/^0*/)![0].length,
       difficulty: getHashDifficulty(hash),
       version,
       en1,
@@ -100,7 +144,7 @@ export class Miner extends EventEmitter {
     }
   }
 
-  setThreads(n) {
+  setThreads(n: number): void {
     this.totalThreads = n;
     this.initWorkers();
     if (this.isMining && this.currentJob) {
@@ -108,7 +152,7 @@ export class Miner extends EventEmitter {
     }
   }
 
-  setStrategy(method, customNonce = 0) {
+  setStrategy(method: number, customNonce = 0): void {
     this.activeMethod = method;
     this.customNonce = customNonce;
     Logger.info(`Mining strategy updated to method ${method} (Custom Nonce: ${customNonce})`);
@@ -119,7 +163,7 @@ export class Miner extends EventEmitter {
   }
 
   /** Records a new pool job. Only dispatches it to the workers if mining is already turned on. */
-  startNewJob(job, poolDifficulty) {
+  startNewJob(job: MiningJob, poolDifficulty: number): void {
     this.jobsReceived++;
     this.currentJob = job;
     this.poolDifficulty = poolDifficulty;
@@ -128,7 +172,7 @@ export class Miner extends EventEmitter {
     try {
       this.blockHeader = processMiningNotification(job, job.extranonce1, job.extranonce2_size, config.workerName);
     } catch (e) {
-      Logger.error(`Failed to decode block header info: ${e.message}`);
+      Logger.error(`Failed to decode block header info: ${(e as Error).message}`);
     }
 
     if (this.isMining) {
@@ -137,7 +181,7 @@ export class Miner extends EventEmitter {
   }
 
   /** Turns CPU mining on and starts hashing the current job, if one has been received yet. */
-  start() {
+  start(): void {
     this.isMining = true;
     if (this.currentJob) {
       this._dispatchToWorkers();
@@ -145,19 +189,21 @@ export class Miner extends EventEmitter {
   }
 
   /** Turns CPU mining off. */
-  stop() {
+  stop(): void {
     this.isMining = false;
     this.interruptWorkers();
   }
 
   /** Tells the workers to abandon whatever they're hashing, without changing the on/off state. */
-  interruptWorkers() {
+  interruptWorkers(): void {
     for (const w of this.workers) {
       w.postMessage({ type: 'stop' });
     }
   }
 
-  _dispatchToWorkers() {
+  _dispatchToWorkers(): void {
+    if (!this.currentJob) return;
+
     if (this.activeMethod === MiningMethod.ALL_MODE) {
       this.allModeIndex++;
       if (this.allModeIndex > 12) this.allModeIndex = 1; // 1 is STANDARD; skip 0 (ALL_MODE itself)
@@ -182,7 +228,7 @@ export class Miner extends EventEmitter {
     }
   }
 
-  updateStats() {
+  updateStats(): void {
     const hashesThisSecond = this.stats.totalHashes - this.lastHashes;
     this.lastHashes = this.stats.totalHashes;
 
@@ -199,7 +245,7 @@ export class Miner extends EventEmitter {
     this.emit('stats', this.getStats());
   }
 
-  getStats() {
+  getStats(): MinerStats {
     let efficiency = '0.00%';
     if (this.stats.sharesFound + this.stats.staleShares > 0) {
       efficiency = ((this.stats.sharesFound / (this.stats.sharesFound + this.stats.staleShares)) * 100).toFixed(2) + '%';
