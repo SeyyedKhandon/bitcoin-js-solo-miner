@@ -2,7 +2,7 @@ node_modules/
 .DS_Store
 *.log
 
-# Compiled output (run `npm run build`)
-dist/
+# Compiled browser output (run `npm run build`) - the backend runs
+# .ts source directly via Node's built-in TypeScript support.
 public/*.js
 public/*.js.map

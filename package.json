@@ -2,12 +2,15 @@
   "name": "bitcoin-js-solo-miner",
   "version": "1.0.0",
   "description": "A Stratum V1 Bitcoin solo miner in Node.js, with CPU worker threads and a browser dashboard that can mine on the GPU via WebGPU.",
-  "main": "dist/index.js",
+  "main": "index.ts",
   "type": "module",
+  "engines": {
+    "node": ">=23.6.0"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsc -p tsconfig.public.json",
-    "prestart": "npm run build",
-    "start": "node dist/index.js"
+    "build": "tsc -p tsconfig.public.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.public.json --noEmit",
+    "start": "npm run build && node index.ts"
   },
   "keywords": [
     "bitcoin",

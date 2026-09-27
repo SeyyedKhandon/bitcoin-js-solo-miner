@@ -1,9 +1,9 @@
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
-import type { Miner } from '../mining/miner.js';
-import type { StratumClient } from '../mining/stratum-client.js';
-import type { Config, MinerStats } from '../lib/types.js';
+import type { Miner } from '../mining/miner.ts';
+import type { StratumClient } from '../mining/stratum-client.ts';
+import type { Config, MinerStats } from '../lib/types.ts';
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html',

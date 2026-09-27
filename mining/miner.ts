@@ -1,19 +1,19 @@
 import { EventEmitter } from 'events';
 import { Worker } from 'worker_threads';
-import { MiningMethod } from './strategies.js';
-import { processMiningNotification } from './coinbase-decoder.js';
-import { getTargetFromNbits, getHashDifficulty } from '../lib/hash.js';
-import { Logger } from '../lib/logger.js';
-import { config } from '../config.js';
+import { MiningMethod } from './strategies.ts';
+import { processMiningNotification } from './coinbase-decoder.ts';
+import { getTargetFromNbits, getHashDifficulty } from '../lib/hash.ts';
+import { Logger } from '../lib/logger.ts';
+import { config } from '../config.ts';
 import type {
   MiningJob,
   MiningNotificationResult,
   HashRecord,
   MinerStats,
   WorkerOutboundMessage
-} from '../lib/types.js';
+} from '../lib/types.ts';
 
-const workerUrl = new URL('./worker.js', import.meta.url);
+const workerUrl = new URL('./worker.ts', import.meta.url);
 
 interface HashMeta {
   version?: string;

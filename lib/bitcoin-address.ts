@@ -1,4 +1,4 @@
-import { doubleSha256 } from './hash.js';
+import { doubleSha256 } from './hash.ts';
 
 // Bitcoin script opcodes relevant to standard output types
 const OP_0 = 0x00;

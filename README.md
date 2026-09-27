@@ -6,12 +6,14 @@ It mines by itself — this is not a pool-fee-free lottery ticket generator, it'
 
 ## Running it
 
+Requires **Node.js 23.6+** (any current LTS works) - that's the version where Node's built-in TypeScript support became enabled by default, no flags needed.
+
 ```bash
 npm install
 npm start
 ```
 
-`npm start` compiles the TypeScript (via a `prestart` hook) and runs the result. On startup the console prints the dashboard URL:
+`npm start` compiles the browser dashboard's TypeScript (`npm run build`, output committed nowhere - just regenerated into `public/`), then runs the backend directly from its `.ts` source via `node index.ts`. There's no backend build step or `dist/` folder: Node's native TypeScript support strips the types at load time and runs the source as-is. On startup the console prints the dashboard URL:
 
 ```
   ┌─────────────────────────────────────────────┐
@@ -23,7 +25,7 @@ npm start
 
 Open **http://localhost:8080** to watch live hashrate, shares, and the best hash found this session, and to control pool, thread count, and mining strategy. Every field on the dashboard has a hover tooltip explaining what it means.
 
-To just compile without running: `npm run build`. This runs two separate `tsc` builds — one for the Node.js backend (output to `dist/`), one for the browser dashboard's TypeScript (compiled in place into `public/`, since it's loaded directly by the browser with no bundler).
+The browser dashboard's TypeScript still needs a real `tsc` compile (`npm run build`), since browsers can't run `.ts` directly - that's the one thing `npm start` builds before running. To type-check everything (backend included) without running anything, use `npm run typecheck`.
 
 ## Browser GPU mining
 
@@ -48,7 +50,7 @@ Pool and mining settings live in `config.ts`. Pool host/port, mining strategy, a
 ```
 index.ts                    entry point: wires everything together, prints the startup banner
 config.ts                   pool + mining settings
-tsconfig.json                backend build config (Node, outputs to dist/)
+tsconfig.json                backend type-checking config (Node runs the .ts source directly - see "Running it")
 tsconfig.public.json         frontend build config (browser, compiles in place into public/)
 
 lib/

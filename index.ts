@@ -1,12 +1,12 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { config } from './config.js';
-import { StratumClient } from './mining/stratum-client.js';
-import { Miner } from './mining/miner.js';
-import { Logger } from './lib/logger.js';
-import { createHttpServer } from './server/http-server.js';
-import { attachWebSocketServer, broadcastJob } from './server/ws-server.js';
-import type { MiningJob, ShareInfo } from './lib/types.js';
+import { config } from './config.ts';
+import { StratumClient } from './mining/stratum-client.ts';
+import { Miner } from './mining/miner.ts';
+import { Logger } from './lib/logger.ts';
+import { createHttpServer } from './server/http-server.ts';
+import { attachWebSocketServer, broadcastJob } from './server/ws-server.ts';
+import type { MiningJob, ShareInfo } from './lib/types.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = 8080;
@@ -20,9 +20,7 @@ const { server, broadcastStats } = createHttpServer({
   miner,
   stratum,
   config,
-  // __dirname is dist/ at runtime (compiled from index.ts), so one level up
-  // reaches the repo root's public/ folder.
-  publicDir: path.join(__dirname, '..', 'public')
+  publicDir: path.join(__dirname, 'public')
 });
 
 const wss = attachWebSocketServer(server, { miner, stratum });

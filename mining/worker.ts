@@ -1,8 +1,8 @@
 import { parentPort } from 'worker_threads';
 import crypto from 'crypto';
-import { doubleSha256, doubleSha256Pair } from '../lib/hash.js';
-import { MiningMethod, getRandomNonceFromList } from './strategies.js';
-import type { MiningJob, WorkerInboundMessage, WorkerStartPayload } from '../lib/types.js';
+import { doubleSha256, doubleSha256Pair } from '../lib/hash.ts';
+import { MiningMethod, getRandomNonceFromList } from './strategies.ts';
+import type { MiningJob, WorkerInboundMessage, WorkerStartPayload } from '../lib/types.ts';
 
 if (!parentPort) {
   throw new Error('mining/worker.ts must be run as a worker_threads Worker');

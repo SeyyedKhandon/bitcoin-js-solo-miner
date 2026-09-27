@@ -1,4 +1,4 @@
-import type { Config } from './lib/types.js';
+import type { Config } from './lib/types.ts';
 
 export const config: Config = {
   // Pool settings

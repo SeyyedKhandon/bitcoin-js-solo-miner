@@ -1,7 +1,7 @@
 import net from 'net';
 import { EventEmitter } from 'events';
-import { Logger } from '../lib/logger.js';
-import type { Config, MiningJob } from '../lib/types.js';
+import { Logger } from '../lib/logger.ts';
+import type { Config, MiningJob } from '../lib/types.ts';
 
 interface StratumResponse {
   id: number | null;

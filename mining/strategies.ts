@@ -26,9 +26,7 @@ export const MiningMethod = {
 
 let customNoncesList: number[] = [];
 try {
-  // __dirname is dist/mining at runtime (compiled from mining/strategies.ts),
-  // so two levels up reaches the repo root's data/ folder.
-  const dataPath = path.join(__dirname, '..', '..', 'data', 'bitcoin_last_10000_nonces.txt');
+  const dataPath = path.join(__dirname, '..', 'data', 'bitcoin_last_10000_nonces.txt');
   const data = fs.readFileSync(dataPath, 'utf8');
   customNoncesList = data.split(',').map(n => parseInt(n.trim(), 10)).filter(n => !isNaN(n));
 } catch (e) {

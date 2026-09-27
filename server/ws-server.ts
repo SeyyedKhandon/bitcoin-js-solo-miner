@@ -1,9 +1,9 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
-import { Logger } from '../lib/logger.js';
-import type { Miner } from '../mining/miner.js';
-import type { StratumClient } from '../mining/stratum-client.js';
-import type { BrowserWsMessage, MinerSource } from '../lib/types.js';
+import { Logger } from '../lib/logger.ts';
+import type { Miner } from '../mining/miner.ts';
+import type { StratumClient } from '../mining/stratum-client.ts';
+import type { BrowserWsMessage, MinerSource } from '../lib/types.ts';
 
 const SOURCE_LABELS: Record<MinerSource, string> = {
   'browser-cpu': 'browser CPU miner',

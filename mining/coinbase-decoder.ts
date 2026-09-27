@@ -1,6 +1,6 @@
-import { getTargetFromNbits, getHashDifficulty } from '../lib/hash.js';
-import { decodeAddressFromScriptPubKey } from '../lib/bitcoin-address.js';
-import type { MiningJob, MiningNotificationResult } from '../lib/types.js';
+import { getTargetFromNbits, getHashDifficulty } from '../lib/hash.ts';
+import { decodeAddressFromScriptPubKey } from '../lib/bitcoin-address.ts';
+import type { MiningJob, MiningNotificationResult } from '../lib/types.ts';
 
 const MAX_DISPLAYED_OUTPUTS = 20;
 const BIP110_SIGNAL_BIT = 4;
