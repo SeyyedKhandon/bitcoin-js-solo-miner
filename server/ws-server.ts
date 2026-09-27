@@ -10,6 +10,12 @@ const SOURCE_LABELS: Record<MinerSource, string> = {
   'webgpu': 'browser WebGPU miner'
 };
 
+/** Short labels for the dashboard's "Method" field on a reported hash. */
+const METHOD_LABELS: Record<MinerSource, string> = {
+  'browser-cpu': 'Browser CPU',
+  'webgpu': 'WebGPU'
+};
+
 function labelFor(source: MinerSource | undefined): string {
   return (source && SOURCE_LABELS[source]) || 'browser client';
 }
@@ -62,7 +68,18 @@ export function attachWebSocketServer(httpServer: Server, { miner, stratum }: At
       } else if (msg.type === 'hashrate') {
         miner.stats.totalHashes += msg.count;
         if (msg.latestHash) {
-          miner.recordHash(msg.latestHash, { version: msg.version, en1: msg.en1, en2: msg.en2, nonce: msg.nonce });
+          // Browser miners scan the nonce space their own fixed way rather
+          // than through the server's strategy list, so they report their
+          // own scan strategy and it's shown as "<miner> · <strategy>",
+          // matching how CPU worker hashes are labelled.
+          const source = METHOD_LABELS[msg.source] || 'Browser';
+          miner.recordHash(msg.latestHash, {
+            version: msg.version,
+            en1: msg.en1,
+            en2: msg.en2,
+            nonce: msg.nonce,
+            method: msg.method ? `${source} · ${msg.method}` : source
+          });
         }
       }
     });

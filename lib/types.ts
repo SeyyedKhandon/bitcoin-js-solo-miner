@@ -44,6 +44,8 @@ export interface HashRecord {
   en1?: string;
   en2?: string;
   nonce?: string;
+  /** Which miner/strategy produced it, e.g. "STANDARD" or "WebGPU". */
+  method?: string;
 }
 
 export interface CoinbaseOutput {
@@ -104,7 +106,7 @@ export type WorkerInboundMessage =
   | { type: 'stop' };
 
 export type WorkerOutboundMessage =
-  | { type: 'hashrate'; count: number; latestHash: string; version?: string; en1?: string; en2?: string; nonce?: string }
+  | { type: 'hashrate'; count: number; latestHash: string; version?: string; en1?: string; en2?: string; nonce?: string; method?: number }
   | { type: 'share'; shareInfo: ShareInfo };
 
 /** Who reported a hash/share/hello over the browser-miner WebSocket. */
@@ -113,4 +115,4 @@ export type MinerSource = 'browser-cpu' | 'webgpu';
 export type BrowserWsMessage =
   | { type: 'hello'; source: MinerSource }
   | { type: 'share'; source: MinerSource; shareInfo: ShareInfo }
-  | { type: 'hashrate'; source: MinerSource; count: number; latestHash?: string | null; version?: string; en1?: string; en2?: string; nonce?: string };
+  | { type: 'hashrate'; source: MinerSource; count: number; latestHash?: string | null; version?: string; en1?: string; en2?: string; nonce?: string; method?: string };

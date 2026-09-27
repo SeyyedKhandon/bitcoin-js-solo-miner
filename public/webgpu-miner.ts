@@ -293,7 +293,11 @@ async function mineWebGPULoop(): Promise<void> {
                 version: job.version,
                 en1: job.extranonce1,
                 en2: extranonce2,
-                nonce: latestNonceHex || (nonceBase >>> 0).toString(16).padStart(8, '0')
+                nonce: latestNonceHex || (nonceBase >>> 0).toString(16).padStart(8, '0'),
+                // Fixed scan strategy: a random extranonce2, then a
+                // sequential sweep of the nonce space in dispatch-sized
+                // blocks, rolling extranonce2 once the space is exhausted.
+                method: 'random EN2, sequential sweep'
             }));
         }
 

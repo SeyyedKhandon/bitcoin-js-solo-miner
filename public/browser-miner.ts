@@ -106,7 +106,10 @@ async function mineLoop(): Promise<void> {
             version: job.version,
             en1: job.extranonce1,
             en2: extranonce2,
-            nonce: (latestNonce >>> 0).toString(16).padStart(8, '0')
+            nonce: (latestNonce >>> 0).toString(16).padStart(8, '0'),
+            // Fixed scan strategy: a fresh random extranonce2 per batch, and
+            // a random starting nonce incremented across the batch.
+            method: 'random EN2, random start nonce'
         }));
     }
 

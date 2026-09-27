@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { Worker } from 'worker_threads';
-import { MiningMethod, ALL_MODE_METHODS } from './strategies.ts';
+import { MiningMethod, ALL_MODE_METHODS, methodName } from './strategies.ts';
 import { processMiningNotification } from './coinbase-decoder.ts';
 import { getTargetFromNbits, getHashDifficulty } from '../lib/hash.ts';
 import { Logger } from '../lib/logger.ts';
@@ -20,6 +20,8 @@ interface HashMeta {
   en1?: string;
   en2?: string;
   nonce?: string;
+  /** Which miner/strategy produced it, e.g. "STANDARD" or "WebGPU". */
+  method?: string;
 }
 
 /**
@@ -113,7 +115,13 @@ export class Miner extends EventEmitter {
   _handleWorkerMessage(msg: WorkerOutboundMessage): void {
     if (msg.type === 'hashrate') {
       this.stats.totalHashes += msg.count;
-      this.recordHash(msg.latestHash, { version: msg.version, en1: msg.en1, en2: msg.en2, nonce: msg.nonce });
+      this.recordHash(msg.latestHash, {
+        version: msg.version,
+        en1: msg.en1,
+        en2: msg.en2,
+        nonce: msg.nonce,
+        method: msg.method !== undefined ? `CPU · ${methodName(msg.method)}` : undefined
+      });
     } else if (msg.type === 'share') {
       this.stats.sharesFound++;
       this.emit('share', msg.shareInfo);
@@ -135,7 +143,7 @@ export class Miner extends EventEmitter {
    * every CPU worker batch, and for any browser miner (WebGPU, browser
    * CPU) that reports one over the WebSocket - see server/ws-server.ts.
    */
-  recordHash(hash: string | null | undefined, { version, en1, en2, nonce }: HashMeta): void {
+  recordHash(hash: string | null | undefined, { version, en1, en2, nonce, method }: HashMeta): void {
     if (!hash) return;
 
     const hashObj: HashRecord = {
@@ -145,7 +153,8 @@ export class Miner extends EventEmitter {
       version,
       en1,
       en2,
-      nonce
+      nonce,
+      method
     };
 
     this.latestHash = hashObj;

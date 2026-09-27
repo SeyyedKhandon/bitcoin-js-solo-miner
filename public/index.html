@@ -133,6 +133,7 @@
                 </div>
                 <div class="hash-string" id="val-latest-hash" data-tooltip="The double-SHA256 hash of the 80-byte block header (version + previous block hash + Merkle root + time + nbits + nonce), displayed in the usual big-endian, human-readable order.">Waiting for first hash...</div>
                 <div class="hash-meta">
+                    <div class="meta-item" data-tooltip="Which miner produced this hash (the Node.js CPU workers, your browser's CPU, or your GPU via WebGPU) and the nonce-search strategy it was using at the time. Under ALL_MODE the server rotates strategies per job, so this shows the one actually in effect for this hash."><span>Method</span><strong id="val-latest-method">-</strong></div>
                     <div class="meta-item" data-tooltip="The block header version field. Also carries 'signal bits' miners set to vote for pending protocol upgrades (soft forks)."><span>Version</span><strong id="val-latest-ver">-</strong></div>
                     <div class="meta-item" data-tooltip="A unique ID the pool assigned to this miner's connection when it subscribed, used to build a coinbase transaction that's different from every other miner working the same job."><span>Extranonce 1</span><strong id="val-latest-en1">-</strong></div>
                     <div class="meta-item" data-tooltip="An additional nonce this miner controls and increments itself, appended after extranonce1. Rolling it lets a worker get a whole new coinbase transaction (and Merkle root) to search once it exhausts the 4-billion nonce field alone."><span>Extranonce 2</span><strong id="val-latest-en2">-</strong></div>
@@ -150,6 +151,7 @@
                 </div>
                 <div class="hash-string text-gold" id="val-best-hash" data-tooltip="The lowest hash value found this session — the one that came closest to being a valid block.">Waiting for first hash...</div>
                 <div class="hash-meta">
+                    <div class="meta-item" data-tooltip="Which miner found the session's best hash (the Node.js CPU workers, your browser's CPU, or your GPU via WebGPU) and the nonce-search strategy it was using when it found it."><span>Method</span><strong id="val-best-method">-</strong></div>
                     <div class="meta-item" data-tooltip="The block header version used when this hash was found."><span>Version</span><strong id="val-best-ver">-</strong></div>
                     <div class="meta-item" data-tooltip="The pool-assigned extranonce1 used when this hash was found."><span>Extranonce 1</span><strong id="val-best-en1">-</strong></div>
                     <div class="meta-item" data-tooltip="The self-chosen extranonce2 used when this hash was found."><span>Extranonce 2</span><strong id="val-best-en2">-</strong></div>

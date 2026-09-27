@@ -29,6 +29,7 @@ const els = {
     latestEn1: document.getElementById('val-latest-en1')!,
     latestEn2: document.getElementById('val-latest-en2')!,
     latestNonce: document.getElementById('val-latest-nonce')!,
+    latestMethod: document.getElementById('val-latest-method')!,
 
     bestZeros: document.getElementById('val-best-zeros')!,
     bestDiff: document.getElementById('val-best-diff')!,
@@ -37,6 +38,7 @@ const els = {
     bestEn1: document.getElementById('val-best-en1')!,
     bestEn2: document.getElementById('val-best-en2')!,
     bestNonce: document.getElementById('val-best-nonce')!,
+    bestMethod: document.getElementById('val-best-method')!,
 };
 
 interface HashRecord {
@@ -47,6 +49,7 @@ interface HashRecord {
     en1?: string;
     en2?: string;
     nonce?: string;
+    method?: string;
 }
 
 interface CoinbaseOutput {
@@ -281,6 +284,7 @@ evtSource.onmessage = (event: MessageEvent) => {
         els.latestEn1.textContent = data.latestHash.en1 || '-';
         els.latestEn2.textContent = data.latestHash.en2 || '-';
         els.latestNonce.textContent = data.latestHash.nonce || '-';
+        els.latestMethod.textContent = data.latestHash.method || '-';
     }
 
     // Update Best Hash
@@ -292,6 +296,7 @@ evtSource.onmessage = (event: MessageEvent) => {
         els.bestEn1.textContent = data.bestHash.en1 || '-';
         els.bestEn2.textContent = data.bestHash.en2 || '-';
         els.bestNonce.textContent = data.bestHash.nonce || '-';
+        els.bestMethod.textContent = data.bestHash.method || '-';
     }
 
     // Update real Block Header info (decoded from the current job's coinbase tx)

@@ -53,6 +53,16 @@ export const ALL_MODE_METHODS: number[] = [
   MiningMethod.LIST_NONCES,
 ];
 
+/**
+ * Human-readable name for a MiningMethod value, for showing which strategy
+ * produced a given hash on the dashboard. ALL_MODE never reaches here as a
+ * label - workers report the concrete method it delegated to.
+ */
+export function methodName(method: number): string {
+  const entry = Object.entries(MiningMethod).find(([, value]) => value === method);
+  return entry ? entry[0] : `UNKNOWN (${method})`;
+}
+
 // LIST_NONCES samples from data/bitcoin_last_10000_nonces.txt when present.
 // The file isn't bundled with this project - if it's absent (the normal
 // case), getRandomNonceFromList() below just falls back to nonce 0.

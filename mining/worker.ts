@@ -175,7 +175,8 @@ function mineChunk(): void {
         version: state.job.version,
         en1: state.job.extranonce1,
         en2: extranonce2,
-        nonce: nonceBuffer.toString('hex')
+        nonce: nonceBuffer.toString('hex'),
+        method: appliedMethod
       });
       setImmediate(mineChunk);
       return;
@@ -225,7 +226,8 @@ function mineChunk(): void {
     version: state.job.version,
     en1: state.job.extranonce1,
     en2: extranonce2,
-    nonce: nonceBuffer.toString('hex')
+    nonce: nonceBuffer.toString('hex'),
+    method: appliedMethod
   });
 
   if (state.isMining) setImmediate(mineChunk);
