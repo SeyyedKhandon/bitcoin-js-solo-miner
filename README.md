@@ -81,14 +81,6 @@ npm run snapshot    # snapshot the built dashboard into releases/<version>/
 
 All three build a real Merkle root and 80-byte header and can submit genuine shares. The GPU miner's intensity control is a real duty cycle: it measures how long each batch takes and idles for the remainder, so 25/50/75% genuinely leave the card idle rather than just shrinking the batch.
 
-## Is it correct?
-
-Mining code fails silently — a byte-order mistake just means you hash garbage forever. So the header, Merkle and target logic are checked against external ground truth:
-
-- **The real genesis block.** Fetching block 0's header and coinbase from a public explorer, running them through this project's Merkle-root and header assembly, and hashing reproduces `000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f` exactly.
-- **ckpool's own validation.** ckpool's `share_diff()` — the C function the real pool uses to verify submissions — was ported and fed the exact fields this miner would submit. It reconstructs an identical hash, so a share found here would validate at the pool.
-- **The SHA-256 implementation** matches Node's `crypto` across random inputs, and the browser workers' hashes re-derive exactly under the verified Node implementation using live pool jobs.
-
 ## How Stratum mining works
 
 1. **Subscribe** — open a TCP socket to the pool, send `mining.subscribe`; the pool replies with `extranonce1` and an `extranonce2` size.
@@ -173,6 +165,13 @@ bc1q46yjwqmfr24jcuyhpn4ytw43jg574vrgas0nms
 
 [bitcoin:bc1q46yjwqmfr24jcuyhpn4ytw43jg574vrgas0nms](bitcoin:bc1q46yjwqmfr24jcuyhpn4ytw43jg574vrgas0nms)
 
+## Authors
+
+**SeyyedKhandon** — author and maintainer
+[github.com/SeyyedKhandon](https://github.com/SeyyedKhandon)
+
+Contributions are welcome — open an issue or a pull request.
+
 ## License
 
-MIT
+[MIT](LICENSE) © 2026 SeyyedKhandon
