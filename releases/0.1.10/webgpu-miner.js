@@ -1,58 +1,21 @@
 import { webgpuMinerShader } from './shader.js';
 import { calculateMerkleRoot, buildHeaderBase, hexToBytes, bytesToHex, doubleSha256 } from './bitcoin.js';
 import { MiningMethod, getExtranonce2, getStartNonce, isRandomMethod, methodName, resolveMethod } from './strategies.js';
-import type { BrowserJob } from './types.js';
-
 const WORKGROUP_SIZE = 64;
 /** Workgroups dispatched at 100% intensity; buffers are always sized for this. */
 const MAX_WORKGROUPS = 10000;
-
 /**
  * How much of the GPU a single dispatch uses. Lower values submit smaller
  * batches, so the card stays available for the desktop and the browser keeps
  * repainting; 100% mines as hard as the GPU allows.
  */
-function activeWorkgroups(): number {
+function activeWorkgroups() {
     return Math.max(1, Math.round(MAX_WORKGROUPS * wgMinerState.intensityPct / 100));
 }
-
-function noncesPerDispatch(): number {
+function noncesPerDispatch() {
     return WORKGROUP_SIZE * activeWorkgroups();
 }
-
-interface WebGPUMinerState {
-    isMining: boolean;
-    job: BrowserJob | null;
-    targetHex: string;
-    ws: WebSocket | null;
-    hashCount: number;
-    device: GPUDevice | null;
-    pipeline: GPUComputePipeline | null;
-    headerBuffer: GPUBuffer | null;
-    targetBuffer: GPUBuffer | null;
-    resultBuffer: GPUBuffer | null;
-    resultReadBuffer: GPUBuffer | null;
-    nonceOffsetBuffer: GPUBuffer | null;
-    bestPerWorkgroupBuffer: GPUBuffer | null;
-    bestPerWorkgroupReadBuffer: GPUBuffer | null;
-    bindGroup: GPUBindGroup | null;
-    isHashing: boolean;
-    // Nonce-space progress for the current job: which 640k-nonce slice
-    // we're on, and which extranonce2 that's under. When the 32-bit nonce
-    // space under the current extranonce2 is exhausted, extranonce2
-    // advances and nonceBase resets - mirroring the CPU worker's
-    // extranonce2Counter/currentNonce behavior in mining/worker.ts.
-    extranonce2: string;
-    nonceBase: number;
-    /** Strategy pushed by the server (ALL_MODE already resolved). */
-    method: number;
-    customNonce: number;
-    extranonce2Counter: number;
-    /** Share of the GPU each dispatch uses (25/50/70/100). */
-    intensityPct: number;
-}
-
-const wgMinerState: WebGPUMinerState = {
+const wgMinerState = {
     isMining: false,
     job: null,
     targetHex: '',
@@ -76,7 +39,6 @@ const wgMinerState: WebGPUMinerState = {
     extranonce2Counter: 0,
     intensityPct: 50
 };
-
 /**
  * Re-runs a callback on the next macrotask, without the delays the obvious
  * options impose: requestAnimationFrame waits for the next frame boundary
@@ -85,18 +47,17 @@ const wgMinerState: WebGPUMinerState = {
  * yielding to the event loop, so rendering and input still get a turn.
  */
 const immediateChannel = new MessageChannel();
-let immediateTask: (() => void) | null = null;
+let immediateTask = null;
 immediateChannel.port1.onmessage = () => {
     const task = immediateTask;
     immediateTask = null;
-    if (task) task();
+    if (task)
+        task();
 };
-
-function scheduleImmediate(task: () => void): void {
+function scheduleImmediate(task) {
     immediateTask = task;
     immediateChannel.port2.postMessage(0);
 }
-
 /**
  * Paces the next dispatch so the GPU genuinely idles between batches.
  *
@@ -116,7 +77,7 @@ function scheduleImmediate(task: () => void): void {
  * At 100% there is no idle at all: the next batch is queued immediately, so
  * the card is not left waiting on a frame boundary between dispatches.
  */
-function scheduleNextDispatch(cycleStartedAt: number, gpuBusyMs: number): void {
+function scheduleNextDispatch(cycleStartedAt, gpuBusyMs) {
     const pct = wgMinerState.intensityPct;
     if (pct >= 100) {
         scheduleImmediate(mineWebGPULoop);
@@ -131,17 +92,17 @@ function scheduleNextDispatch(cycleStartedAt: number, gpuBusyMs: number): void {
     }
     setTimeout(mineWebGPULoop, Math.round(idleMs));
 }
-
 /** Sets how hard the GPU is driven. Takes effect on the next dispatch. */
-export function setWebGPUIntensity(pct: number): void {
-    if (!Number.isFinite(pct)) return;
+export function setWebGPUIntensity(pct) {
+    if (!Number.isFinite(pct))
+        return;
     wgMinerState.intensityPct = Math.min(100, Math.max(1, pct));
     console.log(`WebGPU intensity -> ${wgMinerState.intensityPct}% (${noncesPerDispatch().toLocaleString()} nonces per dispatch)`);
 }
-
 /** Adopts a strategy pushed by the server (ALL_MODE already resolved). */
-function applyStrategy(msg: { method?: number; customNonce?: number }): void {
-    if (typeof msg.method !== 'number') return;
+function applyStrategy(msg) {
+    if (typeof msg.method !== 'number')
+        return;
     const changed = msg.method !== wgMinerState.method;
     wgMinerState.method = msg.method;
     wgMinerState.customNonce = msg.customNonce ?? 0;
@@ -152,58 +113,42 @@ function applyStrategy(msg: { method?: number; customNonce?: number }): void {
         wgMinerState.nonceBase = getStartNonce(resolveMethod(msg.method), wgMinerState.customNonce);
     }
 }
-
 /**
  * Builds an explanation for a failed adapter request. "No adapter" usually
  * isn't a browser-support problem - it's most often a Linux box where the
  * browser has WebGPU but cannot reach a GPU through Vulkan, which the old
  * catch-all "your browser may not support it" message actively misdiagnosed.
  */
-function noAdapterHelp(): string {
+function noAdapterHelp() {
     const ua = navigator.userAgent;
     const isLinux = /Linux/i.test(ua) && !/Android/i.test(ua);
     const isFirefox = /Firefox/i.test(ua);
-
     const lines = [
         'WebGPU is available in this browser, but it could not find a usable GPU adapter.',
         ''
     ];
-
     if (isLinux) {
-        lines.push(
-            'On Linux this is usually a driver or flag issue rather than missing hardware:',
-            '• WebGPU needs Vulkan - install your GPU\'s Vulkan driver (e.g. "sudo apt install mesa-vulkan-drivers", plus the vendor driver for NVIDIA).',
-            '• Verify Vulkan works outside the browser with "vulkaninfo" (from vulkan-tools).',
-        );
+        lines.push('On Linux this is usually a driver or flag issue rather than missing hardware:', '• WebGPU needs Vulkan - install your GPU\'s Vulkan driver (e.g. "sudo apt install mesa-vulkan-drivers", plus the vendor driver for NVIDIA).', '• Verify Vulkan works outside the browser with "vulkaninfo" (from vulkan-tools).');
         if (isFirefox) {
             lines.push('• In Firefox, set dom.webgpu.enabled to true in about:config, then restart.');
-        } else {
-            lines.push(
-                '• In Chrome/Chromium, enable chrome://flags/#enable-unsafe-webgpu and restart, or launch with --enable-unsafe-webgpu.',
-                '• Check chrome://gpu - the "WebGPU" and "Vulkan" rows there say what was blocked and why.'
-            );
+        }
+        else {
+            lines.push('• In Chrome/Chromium, enable chrome://flags/#enable-unsafe-webgpu and restart, or launch with --enable-unsafe-webgpu.', '• Check chrome://gpu - the "WebGPU" and "Vulkan" rows there say what was blocked and why.');
         }
         lines.push('• Headless/remote/VM sessions and software rendering (llvmpipe) often have no usable adapter at all.');
-    } else {
-        lines.push(
-            'Check that your GPU drivers are up to date, and that hardware acceleration is enabled in the browser settings.',
-            'In Chrome/Chromium, chrome://gpu shows whether WebGPU was blocklisted and why.'
-        );
     }
-
+    else {
+        lines.push('Check that your GPU drivers are up to date, and that hardware acceleration is enabled in the browser settings.', 'In Chrome/Chromium, chrome://gpu shows whether WebGPU was blocklisted and why.');
+    }
     lines.push('', 'CPU mining still works - only GPU mining is unavailable.');
     return lines.join('\n');
 }
-
-async function initWebGPU(): Promise<void> {
+async function initWebGPU() {
     if (!navigator.gpu) {
-        throw new Error(
-            'This browser does not expose WebGPU at all (navigator.gpu is missing). ' +
+        throw new Error('This browser does not expose WebGPU at all (navigator.gpu is missing). ' +
             'It needs a recent Chrome/Edge/Chromium, or Firefox with dom.webgpu.enabled. ' +
-            'CPU mining still works.'
-        );
+            'CPU mining still works.');
     }
-
     // Ask for a discrete GPU first, then accept whatever is available -
     // some systems only return an adapter for one of these.
     const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' })
@@ -211,14 +156,11 @@ async function initWebGPU(): Promise<void> {
     if (!adapter) {
         throw new Error(noAdapterHelp());
     }
-
     wgMinerState.device = await adapter.requestDevice();
     const device = wgMinerState.device;
-
     const shaderModule = device.createShaderModule({
         code: webgpuMinerShader,
     });
-
     wgMinerState.pipeline = device.createComputePipeline({
         layout: 'auto',
         compute: {
@@ -226,44 +168,36 @@ async function initWebGPU(): Promise<void> {
             entryPoint: 'main',
         },
     });
-
     wgMinerState.headerBuffer = device.createBuffer({
         size: 20 * 4, // 80 bytes (20 u32s)
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
-
     wgMinerState.targetBuffer = device.createBuffer({
         size: 8 * 4, // 32 bytes
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
-
     wgMinerState.resultBuffer = device.createBuffer({
         size: 256 * 4, // 1 atomic count + up to 255 nonces
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
-
     wgMinerState.resultReadBuffer = device.createBuffer({
         size: 256 * 4,
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
-
     wgMinerState.nonceOffsetBuffer = device.createBuffer({
         size: 4, // one u32
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-
     // One (best top-word, best nonce) pair per workgroup, reduced locally in
     // the shader from its 64 threads - see bestPerWorkgroup in shader.ts.
     wgMinerState.bestPerWorkgroupBuffer = device.createBuffer({
         size: MAX_WORKGROUPS * 2 * 4,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
-
     wgMinerState.bestPerWorkgroupReadBuffer = device.createBuffer({
         size: MAX_WORKGROUPS * 2 * 4,
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
-
     wgMinerState.bindGroup = device.createBindGroup({
         layout: wgMinerState.pipeline.getBindGroupLayout(0),
         entries: [
@@ -275,43 +209,41 @@ async function initWebGPU(): Promise<void> {
         ],
     });
 }
-
 /** Packs header bytes into u32s matching the shader's unpack (byte 0 of each word = LSB). */
-function packHeaderU32(header: Uint8Array): Uint32Array {
+function packHeaderU32(header) {
     const words = new Uint32Array(20);
     for (let i = 0; i < 19; i++) {
         words[i] = (header[i * 4 + 3] << 24) | (header[i * 4 + 2] << 16) | (header[i * 4 + 1] << 8) | header[i * 4];
     }
     return words;
 }
-
 /** Packs the target in natural big-endian order (word 0 = target's own most significant bytes). */
-function packTargetU32(target: Uint8Array): Uint32Array {
+function packTargetU32(target) {
     const words = new Uint32Array(8);
     for (let i = 0; i < 8; i++) {
         words[i] = (target[i * 4] << 24) | (target[i * 4 + 1] << 16) | (target[i * 4 + 2] << 8) | target[i * 4 + 3];
     }
     return words;
 }
-
-async function mineWebGPULoop(): Promise<void> {
+async function mineWebGPULoop() {
     try {
-        if (!wgMinerState.isMining || !wgMinerState.job || !wgMinerState.device || wgMinerState.isHashing) return;
+        if (!wgMinerState.isMining || !wgMinerState.job || !wgMinerState.device || wgMinerState.isHashing)
+            return;
         wgMinerState.isHashing = true;
         const dispatchStartedAt = performance.now();
-
         const device = wgMinerState.device;
         const job = wgMinerState.job;
-
         // Advance through the nonce space by one dispatch worth of nonces
         // each dispatch. Once the 32-bit space is exhausted, roll a fresh
         // extranonce2 (changing the Merkle root) and start over at 0.
         const method = resolveMethod(wgMinerState.method);
         if (!wgMinerState.extranonce2 || wgMinerState.nonceBase + noncesPerDispatch() > 0xFFFFFFFF) {
-            if (wgMinerState.extranonce2) wgMinerState.extranonce2Counter++;
+            if (wgMinerState.extranonce2)
+                wgMinerState.extranonce2Counter++;
             wgMinerState.extranonce2 = getExtranonce2(method, job.extranonce2_size || 8, wgMinerState.extranonce2Counter);
             wgMinerState.nonceBase = getStartNonce(method, wgMinerState.customNonce);
-        } else if (isRandomMethod(method)) {
+        }
+        else if (isRandomMethod(method)) {
             // These strategies re-pick where they look every dispatch rather
             // than sweeping onward.
             wgMinerState.extranonce2 = getExtranonce2(method, job.extranonce2_size || 8, wgMinerState.extranonce2Counter);
@@ -319,64 +251,50 @@ async function mineWebGPULoop(): Promise<void> {
         }
         const extranonce2 = wgMinerState.extranonce2;
         const nonceBase = wgMinerState.nonceBase;
-
         const merkleRoot = await calculateMerkleRoot(job.coinb1, job.extranonce1, extranonce2, job.coinb2, job.merkle_branch);
         // stopWebGPUMining may have freed the device while we were awaiting.
-        if (!wgMinerState.isMining || !wgMinerState.device) { wgMinerState.isHashing = false; return; }
+        if (!wgMinerState.isMining || !wgMinerState.device) {
+            wgMinerState.isHashing = false;
+            return;
+        }
         const headerBase = buildHeaderBase(job.version, job.prevhash, bytesToHex(merkleRoot), job.ntime, job.nbits);
-
         const header = new Uint8Array(80);
         header.set(headerBase, 0);
         // header[76..79] (nonce) is filled in by the shader from nonceOffset + global_id.x
-
         const headerU32 = packHeaderU32(header);
         const targetU32 = packTargetU32(hexToBytes(wgMinerState.targetHex));
-
-        device.queue.writeBuffer(wgMinerState.headerBuffer!, 0, headerU32);
-        device.queue.writeBuffer(wgMinerState.targetBuffer!, 0, targetU32);
-        device.queue.writeBuffer(wgMinerState.nonceOffsetBuffer!, 0, new Uint32Array([nonceBase]));
-
+        device.queue.writeBuffer(wgMinerState.headerBuffer, 0, headerU32);
+        device.queue.writeBuffer(wgMinerState.targetBuffer, 0, targetU32);
+        device.queue.writeBuffer(wgMinerState.nonceOffsetBuffer, 0, new Uint32Array([nonceBase]));
         const zeroResult = new Uint32Array(256);
-        device.queue.writeBuffer(wgMinerState.resultBuffer!, 0, zeroResult);
-
+        device.queue.writeBuffer(wgMinerState.resultBuffer, 0, zeroResult);
         const commandEncoder = device.createCommandEncoder();
         const passEncoder = commandEncoder.beginComputePass();
-        passEncoder.setPipeline(wgMinerState.pipeline!);
-        passEncoder.setBindGroup(0, wgMinerState.bindGroup!);
+        passEncoder.setPipeline(wgMinerState.pipeline);
+        passEncoder.setBindGroup(0, wgMinerState.bindGroup);
         const dispatchedWorkgroups = activeWorkgroups();
         passEncoder.dispatchWorkgroups(dispatchedWorkgroups);
         passEncoder.end();
-
-        commandEncoder.copyBufferToBuffer(
-            wgMinerState.resultBuffer!, 0,
-            wgMinerState.resultReadBuffer!, 0,
-            256 * 4
-        );
-        commandEncoder.copyBufferToBuffer(
-            wgMinerState.bestPerWorkgroupBuffer!, 0,
-            wgMinerState.bestPerWorkgroupReadBuffer!, 0,
-            dispatchedWorkgroups * 2 * 4
-        );
-
+        commandEncoder.copyBufferToBuffer(wgMinerState.resultBuffer, 0, wgMinerState.resultReadBuffer, 0, 256 * 4);
+        commandEncoder.copyBufferToBuffer(wgMinerState.bestPerWorkgroupBuffer, 0, wgMinerState.bestPerWorkgroupReadBuffer, 0, dispatchedWorkgroups * 2 * 4);
         const gpuStartedAt = performance.now();
         device.queue.submit([commandEncoder.finish()]);
-
-        if (!wgMinerState.isMining || !wgMinerState.resultReadBuffer) { wgMinerState.isHashing = false; return; }
-        await wgMinerState.resultReadBuffer!.mapAsync(GPUMapMode.READ);
-        const arrayBuffer = wgMinerState.resultReadBuffer!.getMappedRange();
+        if (!wgMinerState.isMining || !wgMinerState.resultReadBuffer) {
+            wgMinerState.isHashing = false;
+            return;
+        }
+        await wgMinerState.resultReadBuffer.mapAsync(GPUMapMode.READ);
+        const arrayBuffer = wgMinerState.resultReadBuffer.getMappedRange();
         const resultU32 = new Uint32Array(arrayBuffer.slice(0));
-        wgMinerState.resultReadBuffer!.unmap();
-
-        await wgMinerState.bestPerWorkgroupReadBuffer!.mapAsync(GPUMapMode.READ);
+        wgMinerState.resultReadBuffer.unmap();
+        await wgMinerState.bestPerWorkgroupReadBuffer.mapAsync(GPUMapMode.READ);
         const gpuBusyMs = performance.now() - gpuStartedAt;
-        const bestArrayBuffer = wgMinerState.bestPerWorkgroupReadBuffer!.getMappedRange();
+        const bestArrayBuffer = wgMinerState.bestPerWorkgroupReadBuffer.getMappedRange();
         const bestPerWorkgroupU32 = new Uint32Array(bestArrayBuffer.slice(0));
-        wgMinerState.bestPerWorkgroupReadBuffer!.unmap();
-
+        wgMinerState.bestPerWorkgroupReadBuffer.unmap();
         const count = resultU32[0];
-        let latestHash: string | null = null;
-        let latestNonceHex: string | null = null;
-
+        let latestHash = null;
+        let latestNonceHex = null;
         if (count > 0) {
             console.log(`WEBGPU: Found ${count} nonce(s) beating the target!`);
             for (let i = 1; i <= count && i < 256; i++) {
@@ -386,14 +304,12 @@ async function mineWebGPULoop(): Promise<void> {
                 nonceBuffer[1] = (foundNonce >>> 16) & 0xFF;
                 nonceBuffer[2] = (foundNonce >>> 8) & 0xFF;
                 nonceBuffer[3] = foundNonce & 0xFF;
-
                 // Recompute the real hash for this specific nonce to report it honestly.
                 const shareHeader = new Uint8Array(header);
                 shareHeader.set(nonceBuffer, 76);
                 const shareHash = bytesToHex((await doubleSha256(shareHeader)).slice().reverse());
                 latestHash = shareHash;
                 latestNonceHex = bytesToHex(nonceBuffer);
-
                 if (wgMinerState.ws && wgMinerState.ws.readyState === WebSocket.OPEN) {
                     wgMinerState.ws.send(JSON.stringify({
                         type: 'share',
@@ -409,10 +325,8 @@ async function mineWebGPULoop(): Promise<void> {
                 }
             }
         }
-
         const dispatchedNonces = WORKGROUP_SIZE * dispatchedWorkgroups;
         wgMinerState.hashCount += dispatchedNonces;
-
         // Find this dispatch's actual best hash: each workgroup already
         // reduced its own 64 threads down to one (topWord, nonce) pair
         // (see bestPerWorkgroup in shader.ts), so this is a cheap min-scan
@@ -428,13 +342,11 @@ async function mineWebGPULoop(): Promise<void> {
                     bestNonce = bestPerWorkgroupU32[i * 2 + 1];
                 }
             }
-
             const bestNonceBuffer = new Uint8Array(4);
             bestNonceBuffer[0] = (bestNonce >>> 24) & 0xFF;
             bestNonceBuffer[1] = (bestNonce >>> 16) & 0xFF;
             bestNonceBuffer[2] = (bestNonce >>> 8) & 0xFF;
             bestNonceBuffer[3] = bestNonce & 0xFF;
-
             // Recompute the real hash for this nonce to report it honestly,
             // same as for shares above.
             const bestHeader = new Uint8Array(header);
@@ -442,11 +354,11 @@ async function mineWebGPULoop(): Promise<void> {
             try {
                 latestHash = bytesToHex((await doubleSha256(bestHeader)).slice().reverse());
                 latestNonceHex = bytesToHex(bestNonceBuffer);
-            } catch (e) {
+            }
+            catch (e) {
                 console.error('WebGPU best-hash recompute failed:', e);
             }
         }
-
         if (wgMinerState.ws && wgMinerState.ws.readyState === WebSocket.OPEN) {
             wgMinerState.ws.send(JSON.stringify({
                 type: 'hashrate',
@@ -460,40 +372,38 @@ async function mineWebGPULoop(): Promise<void> {
                 method: methodName(method)
             }));
         }
-
         wgMinerState.nonceBase = nonceBase + dispatchedNonces;
-
         wgMinerState.isHashing = false;
         if (wgMinerState.isMining) {
             scheduleNextDispatch(dispatchStartedAt, gpuBusyMs);
         }
-    } catch(e) {
+    }
+    catch (e) {
         // Stopping tears down the device and buffers, so a dispatch that was
         // in flight at that moment will throw - that is expected, not an error.
-        if (wgMinerState.isMining) console.error("WebGPU loop error:", e);
+        if (wgMinerState.isMining)
+            console.error("WebGPU loop error:", e);
         wgMinerState.isHashing = false;
     }
 }
-
-export async function startWebGPUMining(): Promise<void> {
-    if (wgMinerState.isMining) return;
-
+export async function startWebGPUMining() {
+    if (wgMinerState.isMining)
+        return;
     if (!wgMinerState.device) {
         try {
             await initWebGPU();
             console.log("WebGPU Initialized!");
-        } catch (e) {
+        }
+        catch (e) {
             const message = e instanceof Error ? e.message : String(e);
             console.error("WebGPU Init failed:", message);
             alert(message);
             return;
         }
     }
-
     wgMinerState.isMining = true;
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     wgMinerState.ws = new WebSocket(`${wsProtocol}//${window.location.host}`);
-
     wgMinerState.ws.onmessage = (event) => {
         try {
             const msg = JSON.parse(event.data);
@@ -509,23 +419,22 @@ export async function startWebGPUMining(): Promise<void> {
                 if (wgMinerState.isMining) {
                     mineWebGPULoop();
                 }
-            } else if (msg.type === 'strategy') {
+            }
+            else if (msg.type === 'strategy') {
                 applyStrategy(msg);
             }
-        } catch(e) {
+        }
+        catch (e) {
             console.error("WS error:", e);
         }
     };
-
     wgMinerState.ws.onopen = () => {
         console.log("WebGPU miner connected to Stratum proxy.");
-        wgMinerState.ws!.send(JSON.stringify({ type: 'hello', source: 'webgpu' }));
+        wgMinerState.ws.send(JSON.stringify({ type: 'hello', source: 'webgpu' }));
     };
-
     console.log("WebGPU mining started.");
 }
-
-export function stopWebGPUMining(): void {
+export function stopWebGPUMining() {
     wgMinerState.isMining = false;
     if (wgMinerState.ws) {
         wgMinerState.ws.close();
@@ -534,14 +443,13 @@ export function stopWebGPUMining(): void {
     releaseGPUResources();
     console.log("WebGPU mining stopped.");
 }
-
 /**
  * Frees the GPU device and its buffers when mining stops. Without this a
  * stopped miner held the adapter, the pipeline and ~160KB of readback
  * buffers open for the lifetime of the tab, which shows up as the GPU
  * still being in use. startWebGPUMining re-initialises from scratch.
  */
-function releaseGPUResources(): void {
+function releaseGPUResources() {
     const buffers = [
         wgMinerState.headerBuffer, wgMinerState.targetBuffer,
         wgMinerState.resultBuffer, wgMinerState.resultReadBuffer,
@@ -551,7 +459,10 @@ function releaseGPUResources(): void {
     for (const buffer of buffers) {
         // An in-flight dispatch may still hold a mapped buffer; destroying
         // it is still the right call, we just don't want the throw.
-        try { buffer?.destroy(); } catch { /* already gone */ }
+        try {
+            buffer?.destroy();
+        }
+        catch { /* already gone */ }
     }
     wgMinerState.headerBuffer = null;
     wgMinerState.targetBuffer = null;
@@ -562,11 +473,12 @@ function releaseGPUResources(): void {
     wgMinerState.bestPerWorkgroupReadBuffer = null;
     wgMinerState.bindGroup = null;
     wgMinerState.pipeline = null;
-
-    try { wgMinerState.device?.destroy(); } catch { /* already gone */ }
+    try {
+        wgMinerState.device?.destroy();
+    }
+    catch { /* already gone */ }
     wgMinerState.device = null;
 }
-
 window.setWebGPUIntensity = setWebGPUIntensity;
 window.startWebGPUMining = startWebGPUMining;
 window.stopWebGPUMining = stopWebGPUMining;

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.10 - 2026-09-28
+- The GPU intensity setting now lands much closer to the number on the label. The idle between batches was derived from how long the whole iteration took, which counted CPU work (Merkle root, result reduction, socket send) as GPU time and so idled too long: a 70% setting measured 66%. It now derives the idle from GPU-busy time alone and subtracts the overhead already spent - 25/50/75/100% measure 23/46/72/98%
+- The 70% option is now 75%; a stored 70 is migrated so the control is never left blank
+- The payout address field now shows the address the server is actually authorised with, so the configured default is visible instead of an empty box
+- Moved the payout address into Mining Config rather than a panel of its own
+- Section titles are twice the size, so panels read as real headings
+- Added a VS Code Dark theme
+
 ## 0.1.9 - 2026-09-28
 - 100% GPU intensity now really is ~100%. The loop re-armed with requestAnimationFrame, so after each batch the card sat idle until the next frame boundary - measured 83% duty cycle. It now queues the next batch immediately via a MessageChannel, which has neither the frame wait nor setTimeout's 4ms clamp: 98% duty cycle, and throughput on the same machine went from ~24 MH/s to ~82 MH/s
 - Added a theme picker (matrix, amber, ice, paper), remembered in the browser
