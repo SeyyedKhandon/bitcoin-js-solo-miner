@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6 - 2026-09-28
+- Fixed the dashboard keeping the GPU busy even with every miner stopped: the background was three 50-60vw elements under a 100px blur running an infinite animation, and because each glass panel sits on top with backdrop-filter, the moving backdrop forced every panel to re-blur as well. The page now composites ~5 times per 5s while idle instead of ~143
+- The background is now static gradients with the same look, and the header's pulse only animates while something is actually mining, honouring prefers-reduced-motion
+
 ## 0.1.5 - 2026-09-28
 - Fixed a runaway in the browser CPU miner: every new job from the pool started an additional mining loop alongside the ones already running, so CPU use and memory climbed for as long as the tab was left open
 - The GPU device and its buffers are now released when WebGPU mining stops, instead of being held for the lifetime of the tab

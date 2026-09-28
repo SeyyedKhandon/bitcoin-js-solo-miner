@@ -26,30 +26,28 @@ body {
     position: relative;
 }
 
-/* Glassmorphism Background Blobs */
+/* Ambient background.
+   This used to be three 50-60vw divs under filter: blur(100px), each running
+   an infinite transform animation. That repainted and re-blurred a
+   full-screen surface every frame forever - and because every .glass-panel
+   sits on top with backdrop-filter, a moving backdrop forced each panel to
+   re-run its own blur too. The page therefore composited at ~60fps with
+   nothing happening, which showed up as constant GPU load even with all
+   mining stopped. Static radial gradients give the same look and are
+   rasterised once. */
 .background-blobs {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
     z-index: -1;
     overflow: hidden;
-    filter: blur(100px);
+    background:
+        radial-gradient(45vw 45vw at 12% 8%, rgba(79, 172, 254, 0.40), transparent 70%),
+        radial-gradient(55vw 55vw at 92% 96%, rgba(102, 126, 234, 0.40), transparent 70%),
+        radial-gradient(38vw 38vw at 74% 52%, rgba(118, 75, 162, 0.38), transparent 70%);
 }
 
-.blob {
-    position: absolute;
-    border-radius: 50%;
-    opacity: 0.4;
-    animation: float 20s infinite ease-in-out alternate;
-}
-
-.blob-1 { top: -10%; left: -10%; width: 50vw; height: 50vw; background: #4facfe; }
-.blob-2 { bottom: -20%; right: -10%; width: 60vw; height: 60vw; background: #667eea; animation-delay: -5s; }
-.blob-3 { top: 40%; left: 60%; width: 40vw; height: 40vw; background: #764ba2; animation-delay: -10s; }
-
-@keyframes float {
-    0% { transform: translate(0, 0) scale(1); }
-    100% { transform: translate(10%, 10%) scale(1.1); }
-}
+/* The individual blob elements are no longer needed. */
+.blob { display: none; }
 
 /* Layout */
 .app-container {
@@ -87,13 +85,33 @@ header {
     background: var(--accent);
     border-radius: 50%;
     box-shadow: 0 0 10px var(--accent-glow);
-    animation: pulse 2s infinite;
+    position: relative;
+    flex: none;
+}
+
+/* Only animate while something is actually mining - an idle dashboard
+   should not keep the compositor (and the GPU) awake. transform/opacity
+   run on the compositor, unlike the box-shadow spread this replaced. */
+.pulse-ring::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0;
+}
+
+body.is-mining .pulse-ring::after {
+    animation: pulse 2s infinite ease-out;
 }
 
 @keyframes pulse {
-    0% { box-shadow: 0 0 0 0 var(--accent-glow); }
-    70% { box-shadow: 0 0 0 15px rgba(0, 242, 254, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(0, 242, 254, 0); }
+    0% { transform: scale(1); opacity: 0.6; }
+    100% { transform: scale(2.6); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body.is-mining .pulse-ring::after { animation: none; }
 }
 
 .status-indicator {

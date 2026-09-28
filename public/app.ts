@@ -141,6 +141,20 @@ function savePreference<K extends keyof StoredPreferences>(key: K, value: Stored
     }
 }
 
+// Tracks which miners are running so the header's pulse animation - and so
+// the continuous compositing it causes - only runs while something mines.
+const miningActive = { node: false, browser: false, webgpu: false };
+
+function refreshMiningIndicator(): void {
+    const any = miningActive.node || miningActive.browser || miningActive.webgpu;
+    document.body.classList.toggle('is-mining', any);
+}
+
+function setNodeMiningIndicator(on: boolean): void {
+    miningActive.node = on;
+    refreshMiningIndicator();
+}
+
 function formatNumber(num: number): string {
     return new Intl.NumberFormat().format(num);
 }
@@ -277,6 +291,7 @@ evtSource.onmessage = (event: MessageEvent) => {
     if (toggleNodeMiningBtn && data.isMining !== undefined) {
         toggleNodeMiningBtn.textContent = data.isMining ? 'Stop Node CPU Miner' : 'Start Node CPU Miner';
         toggleNodeMiningBtn.style.background = data.isMining ? '#ff5f56' : '#4CAF50';
+        setNodeMiningIndicator(data.isMining);
     }
 
     // Update Latest Hash
@@ -412,6 +427,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function setBrowserMining(on: boolean): void {
+        miningActive.browser = on;
+        refreshMiningIndicator();
         if (!toggleBrowserMiningBtn) return;
         if (on) {
             window.startBrowserMining();
@@ -425,6 +442,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function setWebGPUMining(on: boolean): void {
+        miningActive.webgpu = on;
+        refreshMiningIndicator();
         if (!toggleWebGPUMiningBtn) return;
         if (on) {
             window.startWebGPUMining();
