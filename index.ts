@@ -33,6 +33,7 @@ const { server, broadcastStats } = createHttpServer({
   stratum,
   config,
   publicDir: path.join(__dirname, 'public'),
+  releasesDir: path.join(__dirname, 'releases'),
   versionInfo
 });
 

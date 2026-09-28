@@ -1,0 +1,506 @@
+:root {
+    --bg-color: #0b0c10;
+    --panel-bg: rgba(25, 26, 35, 0.6);
+    --panel-border: rgba(255, 255, 255, 0.08);
+    --text-main: #f8f9fa;
+    --text-muted: #8b949e;
+    --accent: #00f2fe;
+    --accent-glow: rgba(0, 242, 254, 0.4);
+    --gold: #f9d423;
+    --font-ui: 'Inter', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-main);
+    font-family: var(--font-ui);
+    min-height: 100vh;
+    overflow-x: hidden;
+    position: relative;
+}
+
+/* Ambient background.
+   This used to be three 50-60vw divs under filter: blur(100px), each running
+   an infinite transform animation. That repainted and re-blurred a
+   full-screen surface every frame forever - and because every .glass-panel
+   sits on top with backdrop-filter, a moving backdrop forced each panel to
+   re-run its own blur too. The page therefore composited at ~60fps with
+   nothing happening, which showed up as constant GPU load even with all
+   mining stopped. Static radial gradients give the same look and are
+   rasterised once. */
+.background-blobs {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: -1;
+    overflow: hidden;
+    background:
+        radial-gradient(45vw 45vw at 12% 8%, rgba(79, 172, 254, 0.40), transparent 70%),
+        radial-gradient(55vw 55vw at 92% 96%, rgba(102, 126, 234, 0.40), transparent 70%),
+        radial-gradient(38vw 38vw at 74% 52%, rgba(118, 75, 162, 0.38), transparent 70%);
+}
+
+/* The individual blob elements are no longer needed. */
+.blob { display: none; }
+
+/* Layout */
+.app-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem 2rem;
+    margin-bottom: 2rem;
+    border-radius: 16px;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.logo h1 {
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    background: linear-gradient(90deg, #fff, #a5b4fc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.pulse-ring {
+    width: 12px; height: 12px;
+    background: var(--accent);
+    border-radius: 50%;
+    box-shadow: 0 0 10px var(--accent-glow);
+    position: relative;
+    flex: none;
+}
+
+/* Only animate while something is actually mining - an idle dashboard
+   should not keep the compositor (and the GPU) awake. transform/opacity
+   run on the compositor, unlike the box-shadow spread this replaced. */
+.pulse-ring::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0;
+}
+
+body.is-mining .pulse-ring::after {
+    animation: pulse 2s infinite ease-out;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); opacity: 0.6; }
+    100% { transform: scale(2.6); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body.is-mining .pulse-ring::after { animation: none; }
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    color: var(--accent);
+}
+
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+}
+
+/* Components */
+.glass-panel {
+    background: var(--panel-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--panel-border);
+    border-radius: 16px;
+    padding: 1.5rem;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    /* backdrop-filter makes each panel its own stacking context, so a
+       tooltip inside one cannot paint above a later sibling panel no
+       matter how high its own z-index is - see .glass-panel:hover. */
+    position: relative;
+}
+
+.glass-panel:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    /* Lift the hovered panel above its siblings so its tooltips are not
+       clipped behind the panels that follow it in the document. */
+    z-index: 20;
+}
+
+.stat-card h2 {
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+}
+
+.stat-value {
+    font-size: 1.25rem;
+    font-weight: 800;
+    font-family: var(--font-mono);
+    margin-bottom: 0.5rem;
+}
+
+.stat-value.text-small {
+    font-size: 1.25rem;
+}
+
+.stat-value .unit {
+    font-size: 1rem;
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+.stat-sub {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+}
+
+.stat-sub strong {
+    color: var(--text-main);
+}
+
+.text-accent { color: var(--accent); }
+.text-gold { color: var(--gold); }
+
+.full-width {
+    grid-column: 1 / -1;
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.card-header h2 {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.badge {
+    background: rgba(255,255,255,0.1);
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.badge-gold {
+    background: rgba(249, 212, 35, 0.2);
+    color: var(--gold);
+}
+
+.hash-string {
+    font-family: var(--font-mono);
+    font-size: 1.1rem;
+    word-break: break-all;
+    background: rgba(0,0,0,0.3);
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    letter-spacing: 1px;
+}
+
+.hash-meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+}
+
+.meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.meta-item span {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.meta-item strong {
+    font-family: var(--font-mono);
+    font-size: 1rem;
+}
+
+.list-card ul {
+    list-style: none;
+    display: flex;
+    gap: 1.5rem;
+    margin-top: 1rem;
+    flex-direction: column;
+}
+
+.key-value-list li {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.key-value-list .col-span {
+    grid-column: 1 / -1;
+}
+
+.key-value-list span {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.key-value-list strong {
+    font-size: 1rem;
+}
+
+.key-value-list .code {
+    font-family: var(--font-mono);
+    word-break: break-all;
+    font-size: 0.9rem;
+    color: #a5b4fc;
+}
+
+.key-value-list strong {
+    word-break: break-word;
+}
+
+.sub-list {
+    background: rgba(0,0,0,0.2);
+    padding: 0.75rem;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.sub-list div {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+@media (max-width: 768px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+    .list-card ul {
+        grid-template-columns: 1fr;
+    }
+}
+
+.flex{
+    display: flex;
+    
+}
+
+.flex-grow{
+    flex-grow: 1;
+}
+
+.gap-2{
+    gap: 1rem;
+}
+/* Tooltips: hover any [data-tooltip] element to see an explanation */
+[data-tooltip] {
+    position: relative;
+    cursor: help;
+}
+
+[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10, 11, 16, 0.98);
+    color: var(--text-main);
+    /* Undo any gradient-text trick inherited from the host element (e.g.
+       .logo h1), which would otherwise render the tooltip text invisible. */
+    -webkit-text-fill-color: var(--text-main);
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    border: 1px solid var(--panel-border);
+    padding: 0.6rem 0.8rem;
+    border-radius: 8px;
+    font-family: var(--font-ui);
+    font-size: 0.78rem;
+    font-weight: 400;
+    line-height: 1.45;
+    text-decoration: none;
+    text-transform: none;
+    white-space: normal;
+    width: max-content;
+    max-width: 300px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+    opacity: 0;
+    visibility: hidden;
+    transform-origin: bottom center;
+    transition: opacity 0.15s ease, visibility 0.15s ease;
+    z-index: 1000;
+    pointer-events: none;
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after {
+    opacity: 1;
+    visibility: visible;
+}
+
+[data-tooltip].tooltip-right::after {
+    left: 0;
+    transform: none;
+}
+
+[data-tooltip].tooltip-left::after {
+    left: auto;
+    right: 0;
+    transform: none;
+}
+
+/* Tooltips default to opening upward, which clips off-screen for elements
+   near the very top of the page (the header) - open these downward instead. */
+[data-tooltip].tooltip-down::after {
+    bottom: auto;
+    top: calc(100% + 8px);
+    transform-origin: top center;
+}
+
+/* Version badge tooltip: preserves the newline-separated changelog bullets */
+#app-version::after {
+    white-space: pre-line;
+    text-align: left;
+    max-width: 340px;
+}
+
+/* --- Mining config: one group per miner, so each control sits with the
+   miner it actually affects (the worker count is server-CPU only). --- */
+.config-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.25rem;
+}
+
+.miner-groups {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+.miner-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem;
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.miner-group-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.miner-btn {
+    padding: 0.6rem 1rem;
+    border: none;
+    border-radius: 8px;
+    font-weight: bold;
+    font-family: var(--font-ui);
+    cursor: pointer;
+    background: #4CAF50;
+    color: #000;
+}
+
+#toggle-browser-mining { background: var(--accent); color: var(--bg); }
+#toggle-webgpu-mining { background: #61dafb; color: #000; }
+
+.control-label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.control-input {
+    padding: 0.4rem 0.5rem;
+    background: rgba(0, 0, 0, 0.5);
+    color: white;
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    font-family: var(--font-ui);
+    font-size: 0.85rem;
+    cursor: pointer;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.control-note {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+/* --- Responsive --- */
+@media (max-width: 900px) {
+    .app-container { padding: 1rem; }
+    header.glass-panel { padding: 1rem; }
+    .dashboard-grid { grid-template-columns: 1fr; gap: 1rem; }
+    .flex.full-width { flex-direction: column; }
+}
+
+@media (max-width: 640px) {
+    .logo h1 { font-size: 1.15rem; }
+    header.glass-panel { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+    .glass-panel { padding: 1rem; }
+    .miner-groups { grid-template-columns: 1fr; }
+    .config-header { flex-direction: column; align-items: stretch; }
+    .config-header .control-input { width: 100%; }
+    .hash-string { font-size: 0.8rem; padding: 0.75rem; letter-spacing: 0; }
+    .stat-value { font-size: 1.1rem; }
+    .hash-meta { grid-template-columns: 1fr 1fr; }
+    /* Centred tooltips overflow a narrow viewport - pin them to the panel. */
+    [data-tooltip]::after { max-width: min(85vw, 300px); }
+    .glass-panel:hover { transform: none; }
+}
+
+@media (max-width: 420px) {
+    .hash-meta { grid-template-columns: 1fr; }
+    .logo h1 { font-size: 1rem; }
+}

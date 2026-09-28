@@ -20,12 +20,30 @@ interface VersionInfo {
   changes: string[];
 }
 
+/**
+ * Past releases are snapshotted into releases/<version>/ by
+ * scripts/snapshot-release.mjs. Serving them from disk (rather than reading
+ * a git tag) keeps the history working on a host that only has the deployed
+ * files, and avoids having to rebuild old TypeScript on demand.
+ */
+function listReleases(releasesDir: string): string[] {
+  try {
+    return fs.readdirSync(releasesDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+  } catch {
+    return [];
+  }
+}
+
 interface CreateHttpServerOptions {
   miner: Miner;
   stratum: StratumClient;
   config: Config;
   publicDir: string;
   versionInfo: VersionInfo;
+  releasesDir: string;
 }
 
 /**
@@ -33,7 +51,7 @@ interface CreateHttpServerOptions {
  * exposes a small REST API to control the miner, and streams live stats
  * over Server-Sent Events at /api/events.
  */
-export function createHttpServer({ miner, stratum, config, publicDir, versionInfo }: CreateHttpServerOptions) {
+export function createHttpServer({ miner, stratum, config, publicDir, versionInfo, releasesDir }: CreateHttpServerOptions) {
   const sseClients = new Set<http.ServerResponse>();
 
   const server = http.createServer((req, res) => {
@@ -53,6 +71,30 @@ export function createHttpServer({ miner, stratum, config, publicDir, versionInf
       res.write('retry: 3000\n\n');
       sseClients.add(res);
       req.on('close', () => sseClients.delete(res));
+      return;
+    }
+
+    if (req.url === '/api/versions') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ current: versionInfo.version, versions: listReleases(releasesDir) }));
+      return;
+    }
+
+    // /v/<version>/<file> serves a snapshotted release of the dashboard.
+    if (req.url && req.url.startsWith('/v/')) {
+      const rest = decodeURIComponent(req.url.slice(3).split('?')[0]);
+      const slash = rest.indexOf('/');
+      const version = slash === -1 ? rest : rest.slice(0, slash);
+      const file = slash === -1 || !rest.slice(slash + 1) ? 'index.html' : rest.slice(slash + 1);
+
+      // Only ever serve a version that really exists as a snapshot, so a
+      // crafted path cannot walk out of the releases directory.
+      if (!listReleases(releasesDir).includes(version)) {
+        res.writeHead(404, { 'Content-Type': 'text/html' });
+        res.end(`Unknown release "${version}"`);
+        return;
+      }
+      serveStaticFile(req, res, path.join(releasesDir, version), file);
       return;
     }
 
@@ -163,8 +205,10 @@ function readJsonBody(
   });
 }
 
-function serveStaticFile(req: http.IncomingMessage, res: http.ServerResponse, publicDir: string): void {
-  const urlPath = req.url === '/' ? 'index.html' : decodeURIComponent((req.url || '').split('?')[0]);
+function serveStaticFile(req: http.IncomingMessage, res: http.ServerResponse, publicDir: string, explicitPath?: string): void {
+  const urlPath = explicitPath !== undefined
+    ? explicitPath
+    : (req.url === '/' ? 'index.html' : decodeURIComponent((req.url || '').split('?')[0]));
   const filePath = path.normalize(path.join(publicDir, urlPath));
 
   // Keep requests confined to publicDir (blocks '../' traversal)

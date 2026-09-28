@@ -79,6 +79,8 @@ export interface MinerStats {
   latestHash: HashRecord | 'N/A';
   difficultyNbits: string;
   target: string;
+  poolUser: string;
+  poolUrl: string;
   difficultyDecimal: number | string;
   activeMethod: number;
   jobsReceived: number;

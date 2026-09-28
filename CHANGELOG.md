@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.8 - 2026-09-28
+- Redesigned the dashboard as a terminal/TUI console: monospace throughout, boxed panels with inline titles, bracketed buttons and no glass or blur. Panels are real fieldset/legend pairs, so the titles sit in the border natively
+- Added a version history picker in the header. Each release is snapshotted into releases/<version>/ by scripts/snapshot-release.mjs and served at /v/<version>/, so earlier builds of the interface can be opened side by side with the current one
+- The new theme drops backdrop-filter entirely, so the dashboard is cheaper to render than the glass design it replaced
+
 ## 0.1.7 - 2026-09-28
 - Browser CPU mining now runs on real Web Worker threads with a synchronous SHA-256 instead of one awaited crypto.subtle call per hash on the main thread. Measured on the same machine: 22,402 H/s before, 893,333 H/s on a single worker and 5,700,000 H/s on eight
 - Added a browser worker-thread count selector, defaulting to one less than the CPU's core count so the page stays responsive

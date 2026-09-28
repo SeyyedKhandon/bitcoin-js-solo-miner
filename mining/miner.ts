@@ -304,6 +304,8 @@ export class Miner extends EventEmitter {
       efficiency,
       bestHash: this.bestHash,
       latestHash: this.latestHash,
+      poolUser: config.workerName,
+      poolUrl: `${config.poolHost}:${config.poolPort}`,
       difficultyNbits: this.currentJob ? this.currentJob.nbits : '-',
       target: this.target,
       difficultyDecimal: this.poolDifficulty || 'Waiting...',
