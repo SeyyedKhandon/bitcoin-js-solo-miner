@@ -14,6 +14,8 @@ interface MinerState {
     extranonce2Counter: number;
     /** Where the next batch resumes for the sequential strategies. */
     nextNonce: number | null;
+    /** Whether a mineLoop chain is already running (see startLoop). */
+    loopRunning: boolean;
 }
 
 const minerState: MinerState = {
@@ -25,6 +27,7 @@ const minerState: MinerState = {
     customNonce: 0,
     extranonce2Counter: 0,
     nextNonce: null,
+    loopRunning: false,
 };
 
 function hexToBytes(hex: string): Uint8Array {
@@ -53,8 +56,23 @@ function applyStrategy(msg: { method?: number; customNonce?: number }): void {
     }
 }
 
+/**
+ * Starts the mining loop unless one is already running. mineLoop re-arms
+ * itself, so calling it directly on every incoming job (as the job handler
+ * used to) left the previous chain running and started another alongside
+ * it - each new job permanently multiplied CPU use and memory.
+ */
+function startLoop(): void {
+    if (minerState.loopRunning) return;
+    minerState.loopRunning = true;
+    mineLoop();
+}
+
 async function mineLoop(): Promise<void> {
-    if (!minerState.isMining || !minerState.job) return;
+    if (!minerState.isMining || !minerState.job) {
+        minerState.loopRunning = false;
+        return;
+    }
 
     const job = minerState.job;
 
@@ -143,6 +161,10 @@ async function mineLoop(): Promise<void> {
         }));
     }
 
+    if (!minerState.isMining) {
+        minerState.loopRunning = false;
+        return;
+    }
     setTimeout(mineLoop, 0);
 }
 
@@ -163,7 +185,7 @@ function startBrowserMining(): void {
                 minerState.nextNonce = null;
                 minerState.extranonce2Counter = 0;
                 if (minerState.isMining) {
-                    mineLoop();
+                    startLoop();
                 }
             } else if (msg.type === 'strategy') {
                 applyStrategy(msg);

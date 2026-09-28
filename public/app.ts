@@ -100,6 +100,7 @@ interface StoredPreferences {
     protocol: string;
     strategy: number;
     customNonce: number;
+    gpuIntensity: number;
 }
 
 const PREFERENCES_KEY = 'bitcoinJsSoloMiner.preferences';
@@ -114,6 +115,9 @@ const DEFAULT_PREFERENCES: StoredPreferences = {
     protocol: 'SV1',
     strategy: 0,
     customNonce: 0,
+    // Half the GPU by default, so starting the GPU miner doesn't make the
+    // machine feel unusable before the user has touched anything.
+    gpuIntensity: 50,
 };
 
 function loadPreferences(): StoredPreferences {
@@ -449,6 +453,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    const gpuIntensitySelect = document.getElementById('gpu-intensity-select') as HTMLSelectElement | null;
+    if (gpuIntensitySelect) {
+        gpuIntensitySelect.addEventListener('change', (e) => {
+            const pct = parseInt((e.target as HTMLSelectElement).value, 10);
+            savePreference('gpuIntensity', pct);
+            window.setWebGPUIntensity(pct);
+        });
+    }
+
     if (els.threadsSelect) {
         els.threadsSelect.addEventListener('change', (e) => {
             const threads = parseInt((e.target as HTMLSelectElement).value, 10);
@@ -517,6 +530,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (els.protocolSelect) els.protocolSelect.value = 'SV1';
         setProtocol('SV1', true);
     });
+
+    if (gpuIntensitySelect) gpuIntensitySelect.value = String(prefs.gpuIntensity);
+    window.setWebGPUIntensity(prefs.gpuIntensity);
 
     if (strategySelect) strategySelect.value = String(prefs.strategy);
     if (customNonceInput) customNonceInput.value = String(prefs.customNonce);

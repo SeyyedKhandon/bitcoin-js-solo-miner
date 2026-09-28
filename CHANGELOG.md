@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.5 - 2026-09-28
+- Fixed a runaway in the browser CPU miner: every new job from the pool started an additional mining loop alongside the ones already running, so CPU use and memory climbed for as long as the tab was left open
+- The GPU device and its buffers are now released when WebGPU mining stops, instead of being held for the lifetime of the tab
+- Added a GPU intensity control (25/50/70/100%, default 50%) so GPU mining can be throttled to leave the machine usable
+- "Threads" is now "Parallel miner workers" and sits with the Server CPU miner it controls; each miner (Server CPU, Browser CPU, GPU) is now its own group with its own settings, since the worker count never applied to the browser or GPU miners
+- The browser CPU miner is labelled as single-threaded, which is why it is far slower than one server worker
+- The dashboard is now responsive down to phone widths
+
 ## 0.1.4 - 2026-09-28
 - WebGPU now explains why it could not start instead of blaming the browser - "no adapter" on Linux is usually a missing Vulkan driver or a disabled flag, so the message now gives the actual steps (mesa-vulkan-drivers, chrome://flags/#enable-unsafe-webgpu, chrome://gpu, dom.webgpu.enabled) and notes that CPU mining still works
 - Selecting the unimplemented Stratum V2 no longer leaves the server's pool config switched to it - the request is now rejected before anything is changed

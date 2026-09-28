@@ -4,8 +4,21 @@ import { MiningMethod, getExtranonce2, getStartNonce, isRandomMethod, methodName
 import type { BrowserJob } from './types.js';
 
 const WORKGROUP_SIZE = 64;
-const NUM_WORKGROUPS = 10000;
-const NONCES_PER_DISPATCH = WORKGROUP_SIZE * NUM_WORKGROUPS; // 640,000
+/** Workgroups dispatched at 100% intensity; buffers are always sized for this. */
+const MAX_WORKGROUPS = 10000;
+
+/**
+ * How much of the GPU a single dispatch uses. Lower values submit smaller
+ * batches, so the card stays available for the desktop and the browser keeps
+ * repainting; 100% mines as hard as the GPU allows.
+ */
+function activeWorkgroups(): number {
+    return Math.max(1, Math.round(MAX_WORKGROUPS * wgMinerState.intensityPct / 100));
+}
+
+function noncesPerDispatch(): number {
+    return WORKGROUP_SIZE * activeWorkgroups();
+}
 
 interface WebGPUMinerState {
     isMining: boolean;
@@ -35,6 +48,8 @@ interface WebGPUMinerState {
     method: number;
     customNonce: number;
     extranonce2Counter: number;
+    /** Share of the GPU each dispatch uses (25/50/70/100). */
+    intensityPct: number;
 }
 
 const wgMinerState: WebGPUMinerState = {
@@ -58,8 +73,16 @@ const wgMinerState: WebGPUMinerState = {
     nonceBase: 0,
     method: MiningMethod.STANDARD,
     customNonce: 0,
-    extranonce2Counter: 0
+    extranonce2Counter: 0,
+    intensityPct: 50
 };
+
+/** Sets how hard the GPU is driven. Takes effect on the next dispatch. */
+export function setWebGPUIntensity(pct: number): void {
+    if (!Number.isFinite(pct)) return;
+    wgMinerState.intensityPct = Math.min(100, Math.max(1, pct));
+    console.log(`WebGPU intensity -> ${wgMinerState.intensityPct}% (${noncesPerDispatch().toLocaleString()} nonces per dispatch)`);
+}
 
 /** Adopts a strategy pushed by the server (ALL_MODE already resolved). */
 function applyStrategy(msg: { method?: number; customNonce?: number }): void {
@@ -177,12 +200,12 @@ async function initWebGPU(): Promise<void> {
     // One (best top-word, best nonce) pair per workgroup, reduced locally in
     // the shader from its 64 threads - see bestPerWorkgroup in shader.ts.
     wgMinerState.bestPerWorkgroupBuffer = device.createBuffer({
-        size: NUM_WORKGROUPS * 2 * 4,
+        size: MAX_WORKGROUPS * 2 * 4,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
 
     wgMinerState.bestPerWorkgroupReadBuffer = device.createBuffer({
-        size: NUM_WORKGROUPS * 2 * 4,
+        size: MAX_WORKGROUPS * 2 * 4,
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
 
@@ -224,11 +247,11 @@ async function mineWebGPULoop(): Promise<void> {
         const device = wgMinerState.device;
         const job = wgMinerState.job;
 
-        // Advance through the nonce space: NONCES_PER_DISPATCH new nonces
+        // Advance through the nonce space by one dispatch worth of nonces
         // each dispatch. Once the 32-bit space is exhausted, roll a fresh
         // extranonce2 (changing the Merkle root) and start over at 0.
         const method = resolveMethod(wgMinerState.method);
-        if (!wgMinerState.extranonce2 || wgMinerState.nonceBase + NONCES_PER_DISPATCH > 0xFFFFFFFF) {
+        if (!wgMinerState.extranonce2 || wgMinerState.nonceBase + noncesPerDispatch() > 0xFFFFFFFF) {
             if (wgMinerState.extranonce2) wgMinerState.extranonce2Counter++;
             wgMinerState.extranonce2 = getExtranonce2(method, job.extranonce2_size || 8, wgMinerState.extranonce2Counter);
             wgMinerState.nonceBase = getStartNonce(method, wgMinerState.customNonce);
@@ -242,6 +265,8 @@ async function mineWebGPULoop(): Promise<void> {
         const nonceBase = wgMinerState.nonceBase;
 
         const merkleRoot = await calculateMerkleRoot(job.coinb1, job.extranonce1, extranonce2, job.coinb2, job.merkle_branch);
+        // stopWebGPUMining may have freed the device while we were awaiting.
+        if (!wgMinerState.isMining || !wgMinerState.device) { wgMinerState.isHashing = false; return; }
         const headerBase = buildHeaderBase(job.version, job.prevhash, bytesToHex(merkleRoot), job.ntime, job.nbits);
 
         const header = new Uint8Array(80);
@@ -262,7 +287,8 @@ async function mineWebGPULoop(): Promise<void> {
         const passEncoder = commandEncoder.beginComputePass();
         passEncoder.setPipeline(wgMinerState.pipeline!);
         passEncoder.setBindGroup(0, wgMinerState.bindGroup!);
-        passEncoder.dispatchWorkgroups(NUM_WORKGROUPS);
+        const dispatchedWorkgroups = activeWorkgroups();
+        passEncoder.dispatchWorkgroups(dispatchedWorkgroups);
         passEncoder.end();
 
         commandEncoder.copyBufferToBuffer(
@@ -273,11 +299,12 @@ async function mineWebGPULoop(): Promise<void> {
         commandEncoder.copyBufferToBuffer(
             wgMinerState.bestPerWorkgroupBuffer!, 0,
             wgMinerState.bestPerWorkgroupReadBuffer!, 0,
-            NUM_WORKGROUPS * 2 * 4
+            dispatchedWorkgroups * 2 * 4
         );
 
         device.queue.submit([commandEncoder.finish()]);
 
+        if (!wgMinerState.isMining || !wgMinerState.resultReadBuffer) { wgMinerState.isHashing = false; return; }
         await wgMinerState.resultReadBuffer!.mapAsync(GPUMapMode.READ);
         const arrayBuffer = wgMinerState.resultReadBuffer!.getMappedRange();
         const resultU32 = new Uint32Array(arrayBuffer.slice(0));
@@ -325,17 +352,18 @@ async function mineWebGPULoop(): Promise<void> {
             }
         }
 
-        wgMinerState.hashCount += NONCES_PER_DISPATCH;
+        const dispatchedNonces = WORKGROUP_SIZE * dispatchedWorkgroups;
+        wgMinerState.hashCount += dispatchedNonces;
 
         // Find this dispatch's actual best hash: each workgroup already
         // reduced its own 64 threads down to one (topWord, nonce) pair
         // (see bestPerWorkgroup in shader.ts), so this is a cheap min-scan
-        // over NUM_WORKGROUPS pairs rather than the full 640k hashes - and,
+        // over one pair per workgroup rather than every hash - and,
         // unlike a random sample, it's guaranteed to be the true best.
         if (!latestHash) {
             let bestWord = bestPerWorkgroupU32[0];
             let bestNonce = bestPerWorkgroupU32[1];
-            for (let i = 1; i < NUM_WORKGROUPS; i++) {
+            for (let i = 1; i < dispatchedWorkgroups; i++) {
                 const word = bestPerWorkgroupU32[i * 2];
                 if (word < bestWord) {
                     bestWord = word;
@@ -365,7 +393,7 @@ async function mineWebGPULoop(): Promise<void> {
             wgMinerState.ws.send(JSON.stringify({
                 type: 'hashrate',
                 source: 'webgpu',
-                count: NONCES_PER_DISPATCH,
+                count: dispatchedNonces,
                 latestHash,
                 version: job.version,
                 en1: job.extranonce1,
@@ -375,14 +403,16 @@ async function mineWebGPULoop(): Promise<void> {
             }));
         }
 
-        wgMinerState.nonceBase = nonceBase + NONCES_PER_DISPATCH;
+        wgMinerState.nonceBase = nonceBase + dispatchedNonces;
 
         wgMinerState.isHashing = false;
         if (wgMinerState.isMining) {
             requestAnimationFrame(mineWebGPULoop);
         }
     } catch(e) {
-        console.error("WebGPU loop error:", e);
+        // Stopping tears down the device and buffers, so a dispatch that was
+        // in flight at that moment will throw - that is expected, not an error.
+        if (wgMinerState.isMining) console.error("WebGPU loop error:", e);
         wgMinerState.isHashing = false;
     }
 }
@@ -443,8 +473,42 @@ export function stopWebGPUMining(): void {
         wgMinerState.ws.close();
         wgMinerState.ws = null;
     }
+    releaseGPUResources();
     console.log("WebGPU mining stopped.");
 }
 
+/**
+ * Frees the GPU device and its buffers when mining stops. Without this a
+ * stopped miner held the adapter, the pipeline and ~160KB of readback
+ * buffers open for the lifetime of the tab, which shows up as the GPU
+ * still being in use. startWebGPUMining re-initialises from scratch.
+ */
+function releaseGPUResources(): void {
+    const buffers = [
+        wgMinerState.headerBuffer, wgMinerState.targetBuffer,
+        wgMinerState.resultBuffer, wgMinerState.resultReadBuffer,
+        wgMinerState.nonceOffsetBuffer,
+        wgMinerState.bestPerWorkgroupBuffer, wgMinerState.bestPerWorkgroupReadBuffer,
+    ];
+    for (const buffer of buffers) {
+        // An in-flight dispatch may still hold a mapped buffer; destroying
+        // it is still the right call, we just don't want the throw.
+        try { buffer?.destroy(); } catch { /* already gone */ }
+    }
+    wgMinerState.headerBuffer = null;
+    wgMinerState.targetBuffer = null;
+    wgMinerState.resultBuffer = null;
+    wgMinerState.resultReadBuffer = null;
+    wgMinerState.nonceOffsetBuffer = null;
+    wgMinerState.bestPerWorkgroupBuffer = null;
+    wgMinerState.bestPerWorkgroupReadBuffer = null;
+    wgMinerState.bindGroup = null;
+    wgMinerState.pipeline = null;
+
+    try { wgMinerState.device?.destroy(); } catch { /* already gone */ }
+    wgMinerState.device = null;
+}
+
+window.setWebGPUIntensity = setWebGPUIntensity;
 window.startWebGPUMining = startWebGPUMining;
 window.stopWebGPUMining = stopWebGPUMining;

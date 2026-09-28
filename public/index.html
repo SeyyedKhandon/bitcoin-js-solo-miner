@@ -35,29 +35,54 @@
         <main class="dashboard-grid">
 
             <section class="glass-panel full-width" style="grid-column: 1 / -1;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
+                <div class="config-header">
                     <h2 style="margin: 0;">Mining Config</h2>
-                    <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
-                        <button id="toggle-node-mining" data-tooltip="Starts or stops CPU mining on the Node.js server itself, using the worker thread pool below. This runs on the machine hosting this page, not in your browser." style="padding: 0.5rem 1rem; background: #4CAF50; color: #000; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Start Node CPU Miner</button>
-                        <button id="toggle-browser-mining" data-tooltip="Runs a CPU miner inside THIS browser tab using the Web Crypto API's SHA-256 function. It's a demo of the browser-mining architecture — it doesn't build a real Merkle root, so it can't actually find valid shares, but it shows real hashrate." style="padding: 0.5rem 1rem; background: var(--accent); color: var(--bg); border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Start Browser CPU Mining</button>
-                        <button id="toggle-webgpu-mining" data-tooltip="Runs the double-SHA256 nonce search on your graphics card via WebGPU — orders of magnitude faster than CPU hashing. Requires a WebGPU-capable browser (recent Chrome/Edge)." style="padding: 0.5rem 1rem; background: #61dafb; color: #000; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">Start WebGPU Mining</button>
-                        <select id="threads-select" data-tooltip="How many CPU worker threads mine in parallel on the server. Each thread is assigned its own slice of the 4.29 billion possible nonce values (0 to 0xFFFFFFFF) so they don't repeat each other's work."
-                            style="padding: 0.25rem 0.5rem; background: rgba(0,0,0,0.5); color: white; border: 1px solid var(--panel-border); border-radius: 8px; font-size: 0.8rem; cursor: pointer;">
-                            <option value="1">1 Thread</option>
-                            <option value="2">2 Threads</option>
-                            <option value="4">4 Threads</option>
-                            <option value="8">8 Threads</option>
-                            <option value="16">16 Threads</option>
-                            <option value="32">32 Threads</option>
-                        </select>
-                        <select id="protocol-select" class="tooltip-left" data-tooltip="Stratum V1 is the classic plaintext JSON-RPC mining protocol used by virtually every pool — this is what this miner speaks. Stratum V2 is a newer binary protocol with better efficiency and security; switching to it here is not yet implemented."
-                            style="padding: 0.25rem 0.5rem; background: rgba(0,0,0,0.5); color: white; border: 1px solid var(--panel-border); border-radius: 8px; font-size: 0.8rem; cursor: pointer;">
-                            <option value="SV1">Stratum V1 (SV1)</option>
-                            <option value="SV2">Stratum V2 (SV2)</option>
-                        </select>
+                    <select id="protocol-select" class="tooltip-left control-input" data-tooltip="Stratum V1 is the classic plaintext JSON-RPC mining protocol used by virtually every pool — this is what this miner speaks. Stratum V2 is a newer binary protocol with better efficiency and security; switching to it here is not yet implemented.">
+                        <option value="SV1">Stratum V1 (SV1)</option>
+                        <option value="SV2">Stratum V2 (SV2)</option>
+                    </select>
+                </div>
+
+                <div class="miner-groups">
+                    <div class="miner-group">
+                        <span class="miner-group-label" data-tooltip="Mining performed by the Node.js process hosting this page, across a pool of real OS worker threads. This is the fast one.">Server CPU</span>
+                        <button id="toggle-node-mining" class="miner-btn" data-tooltip="Starts or stops CPU mining on the Node.js server itself, using the parallel worker pool below. This runs on the machine hosting this page, not in your browser.">Start Node CPU Miner</button>
+                        <label class="control-label" data-tooltip="How many parallel worker processes mine on the server. Each is given its own slice of the 4.29 billion possible nonce values so they never repeat each other's work. This applies to the Server CPU miner only — it does not affect browser or GPU mining.">
+                            <span>Parallel miner workers</span>
+                            <select id="threads-select" class="control-input">
+                                <option value="1">1 worker</option>
+                                <option value="2">2 workers</option>
+                                <option value="4">4 workers</option>
+                                <option value="8">8 workers</option>
+                                <option value="16">16 workers</option>
+                                <option value="32">32 workers</option>
+                            </select>
+                        </label>
+                    </div>
+
+                    <div class="miner-group">
+                        <span class="miner-group-label" data-tooltip="Mining performed inside this browser tab using the Web Crypto SHA-256 API.">Browser CPU</span>
+                        <button id="toggle-browser-mining" class="miner-btn" data-tooltip="Runs a real CPU miner inside THIS browser tab using the Web Crypto API's SHA-256. It builds a real Merkle root and can find real shares, but it is single-threaded and the async crypto API makes it far slower than the server miner.">Start Browser CPU Mining</button>
+                        <span class="control-note" data-tooltip="This miner runs as a single loop on the page's main thread, so the parallel worker setting does not apply to it. Expect roughly 20-30x less hashrate than one server worker.">Single-threaded, this tab only</span>
+                    </div>
+
+                    <div class="miner-group">
+                        <span class="miner-group-label" data-tooltip="Mining performed on your graphics card through WebGPU.">GPU (WebGPU)</span>
+                        <button id="toggle-webgpu-mining" class="miner-btn" data-tooltip="Runs the double-SHA256 nonce search on your graphics card via WebGPU — orders of magnitude faster than CPU hashing. Requires a WebGPU-capable browser and a working GPU driver.">Start WebGPU Mining</button>
+                        <label class="control-label" data-tooltip="How much of the GPU each batch uses. Lower values submit smaller batches, leaving the card free for the desktop and keeping the browser responsive; 100% mines as hard as possible and may make the machine feel sluggish.">
+                            <span>GPU intensity</span>
+                            <select id="gpu-intensity-select" class="control-input">
+                                <option value="25">25% - light</option>
+                                <option value="50">50% - balanced</option>
+                                <option value="70">70% - heavy</option>
+                                <option value="100">100% - maximum</option>
+                            </select>
+                        </label>
                     </div>
                 </div>
-                <div style="margin-bottom: 1rem;">
+
+                <label class="control-label" style="margin-bottom: 1rem;">
+                    <span>Nonce search strategy</span>
                     <select id="strategy-select" data-tooltip="Which order the worker searches the 32-bit nonce space in. ALL_MODE rotates through every strategy below (one per job), which is useful for comparing how search order affects how quickly shares are found — in principle every nonce is equally likely to be valid, so this is mostly an experiment in cache/branch behavior rather than a real edge."
                         style="width: 100%; padding: 0.5rem; background: rgba(0,0,0,0.5); color: white; border: 1px solid var(--panel-border); border-radius: 8px; font-family: var(--font-ui); cursor: pointer;">
                         <option value="0">0 - ALL_MODE</option>
@@ -74,7 +99,7 @@
                         <option value="11">11 - RANDOM_EN2_MIDDLE</option>
                         <option value="12">12 - LIST_NONCES</option>
                     </select>
-                </div>
+                </label>
                 <div id="custom-nonce-group" style="display: none;">
                     <h2 data-tooltip="Only used by the CUSTOM_NONCE strategy: the fixed 32-bit starting value each worker uses instead of its usual assigned slice of the nonce space.">Custom Nonce</h2>
                     <input type="number" id="custom-nonce-input" value="0"

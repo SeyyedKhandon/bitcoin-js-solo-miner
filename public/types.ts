@@ -19,6 +19,7 @@ declare global {
     startBrowserMining: () => void;
     stopBrowserMining: () => void;
     startWebGPUMining: () => Promise<void>;
+    setWebGPUIntensity: (pct: number) => void;
     stopWebGPUMining: () => void;
   }
 
