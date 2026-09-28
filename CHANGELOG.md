@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.11 - 2026-09-28
+- Added a Performance History panel: a hashrate chart over time, plus a per-strategy scoreboard showing tries, peak hashrate and best hash for each nonce-search strategy, ordered best hash first
+- History is kept in localStorage, so it survives a reload and a server restart - the server itself only ever reports the current moment
+- The chart is dependency-free inline SVG drawn from the theme variables, so it follows whichever palette is active
+
 ## 0.1.10 - 2026-09-28
 - The GPU intensity setting now lands much closer to the number on the label. The idle between batches was derived from how long the whole iteration took, which counted CPU work (Merkle root, result reduction, socket send) as GPU time and so idled too long: a 70% setting measured 66%. It now derives the idle from GPU-busy time alone and subtracts the overhead already spent - 25/50/75/100% measure 23/46/72/98%
 - The 70% option is now 75%; a stored 70 is migrated so the control is never left blank
