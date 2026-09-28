@@ -154,6 +154,31 @@ export function createHttpServer({ miner, stratum, config, publicDir, versionInf
       });
     }
 
+    if (req.url === '/api/worker' && req.method === 'POST') {
+      return readJsonBody(req, res, (payload: any) => {
+        const address = String(payload.address || '').trim();
+        // Deliberately loose: pools accept a worker suffix (addr.worker1) and
+        // this miner should not be the thing that rejects a valid address
+        // format it has not heard of. Just rule out obvious nonsense.
+        if (address.length < 14 || address.length > 120 || /\s/.test(address)) {
+          throw new Error('That does not look like a Bitcoin address');
+        }
+
+        if (config.workerName === address) {
+          return { success: true, address, reconnected: false };
+        }
+
+        // The pool ties the payout address to the authorised session, so a
+        // new address only takes effect on a fresh connection.
+        config.workerName = address;
+        miner.stop();
+        stratum.client.destroy();
+        stratum.config = config;
+        stratum.connect();
+        return { success: true, address, reconnected: true };
+      });
+    }
+
     if (req.url === '/api/threads' && req.method === 'POST') {
       return readJsonBody(req, res, (payload: any) => {
         if (payload.threads) {

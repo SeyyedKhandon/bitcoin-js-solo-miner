@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.9 - 2026-09-28
+- 100% GPU intensity now really is ~100%. The loop re-armed with requestAnimationFrame, so after each batch the card sat idle until the next frame boundary - measured 83% duty cycle. It now queues the next batch immediately via a MessageChannel, which has neither the frame wait nor setTimeout's 4ms clamp: 98% duty cycle, and throughput on the same machine went from ~24 MH/s to ~82 MH/s
+- Added a theme picker (matrix, amber, ice, paper), remembered in the browser
+- Added a payout address field: enter your own Bitcoin address to have the miner authorise with it, so a solved block pays you. Stored in the browser and re-applied on load
+- Restored the Pool Info fields dropped in the redesign - pool difficulty, fee and job age (now a real "last job" timer rather than a placeholder ping)
+
 ## 0.1.8 - 2026-09-28
 - Redesigned the dashboard as a terminal/TUI console: monospace throughout, boxed panels with inline titles, bracketed buttons and no glass or blur. Panels are real fieldset/legend pairs, so the titles sit in the border natively
 - Added a version history picker in the header. Each release is snapshotted into releases/<version>/ by scripts/snapshot-release.mjs and served at /v/<version>/, so earlier builds of the interface can be opened side by side with the current one
