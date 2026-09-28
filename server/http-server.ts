@@ -42,8 +42,15 @@ export function createHttpServer({ miner, stratum, config, publicDir, versionInf
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
+        // Reverse proxies (nginx and most PaaS routers) buffer responses by
+        // default, which holds the stream back until the buffer fills and
+        // can surface as a dead or 502'd stream behind a proxy.
+        'X-Accel-Buffering': 'no',
         'Access-Control-Allow-Origin': '*'
       });
+      // Tell EventSource to back off a little before reconnecting, so a
+      // proxy hiccup doesn't turn into a reconnect storm.
+      res.write('retry: 3000\n\n');
       sseClients.add(res);
       req.on('close', () => sseClients.delete(res));
       return;
@@ -73,20 +80,35 @@ export function createHttpServer({ miner, stratum, config, publicDir, versionInf
         const port = parseInt(payload.port, 10);
         if (!host || !port) throw new Error('Invalid config');
 
+        // Validate before touching `config`: this used to assign the new
+        // host/port/protocol first and only then reject SV2, which left the
+        // live config permanently switched to an unsupported protocol (and
+        // the pool host overwritten) without ever reconnecting.
+        if (protocol === 'SV2') {
+          throw new Error('Stratum V2 is not implemented yet');
+        }
+
+        // The dashboard re-sends the stored pool settings on every page
+        // load, so reconnecting unconditionally tore down the pool session
+        // (new extranonce1, lost job) every time anyone opened or refreshed
+        // the page. Only reconnect when something actually changed.
+        const unchanged = config.poolHost === host
+          && config.poolPort === port
+          && (!protocol || config.protocol === protocol);
+        if (unchanged) {
+          return { success: true, host, port, protocol, reconnected: false };
+        }
+
         config.poolHost = host;
         config.poolPort = port;
         if (protocol) config.protocol = protocol;
-
-        if (config.protocol === 'SV2') {
-          throw new Error('Stratum V2 is not implemented yet');
-        }
 
         miner.stop();
         stratum.client.destroy();
         stratum.config = config;
         stratum.connect();
 
-        return { success: true, host, port, protocol };
+        return { success: true, host, port, protocol, reconnected: true };
       });
     }
 

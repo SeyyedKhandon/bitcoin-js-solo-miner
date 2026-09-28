@@ -351,7 +351,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }).catch(err => console.error("Failed to update strategy", err));
     }
 
-    async function setProtocol(protocol: string): Promise<void> {
+    /**
+     * Applies a pool/protocol change, returning whether the server accepted
+     * it. A rejection used to be swallowed (only network errors were caught,
+     * not a non-OK status), so picking the unimplemented SV2 left the UI
+     * showing a protocol the server had refused.
+     */
+    async function setProtocol(protocol: string, silent = false): Promise<boolean> {
         // Get host and port from inputs, fallback to ckpool if missing (but do not overwrite active config with a hardcode)
         const hostInput = document.getElementById('pool-host-input') as HTMLInputElement | null;
         const portInput = document.getElementById('pool-port-input') as HTMLInputElement | null;
@@ -359,13 +365,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const port = portInput && portInput.value ? portInput.value : 3333;
 
         try {
-            await fetch('/api/pool', {
+            const res = await fetch('/api/pool', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ host, port, protocol })
             });
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                console.error('Pool config rejected:', body.error || res.status);
+                if (!silent) alert(body.error || `Could not switch protocol (HTTP ${res.status}).`);
+                return false;
+            }
+            return true;
         } catch (err) {
             console.error(err);
+            return false;
         }
     }
 
@@ -420,10 +434,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (els.protocolSelect) {
-        els.protocolSelect.addEventListener('change', () => {
+        let lastAcceptedProtocol = els.protocolSelect.value;
+        els.protocolSelect.addEventListener('change', async () => {
             const protocol = els.protocolSelect!.value;
-            savePreference('protocol', protocol);
-            setProtocol(protocol);
+            // Only remember the choice once the server has accepted it -
+            // saving first meant an unsupported protocol was replayed (and
+            // rejected again) on every subsequent page load.
+            if (await setProtocol(protocol)) {
+                lastAcceptedProtocol = protocol;
+                savePreference('protocol', protocol);
+            } else {
+                els.protocolSelect!.value = lastAcceptedProtocol;
+            }
         });
     }
 
@@ -485,7 +507,16 @@ document.addEventListener('DOMContentLoaded', () => {
     setThreads(prefs.threads);
 
     if (els.protocolSelect) els.protocolSelect.value = prefs.protocol;
-    setProtocol(prefs.protocol);
+    // A protocol the server refuses (e.g. an SV2 selection saved before it
+    // was rejected) would otherwise be replayed and 400 on every load, so
+    // fall back to SV1 and repair the stored preference.
+    setProtocol(prefs.protocol, true).then((ok) => {
+        if (ok || prefs.protocol === 'SV1') return;
+        console.warn(`Stored protocol "${prefs.protocol}" was refused by the server; falling back to SV1.`);
+        savePreference('protocol', 'SV1');
+        if (els.protocolSelect) els.protocolSelect.value = 'SV1';
+        setProtocol('SV1', true);
+    });
 
     if (strategySelect) strategySelect.value = String(prefs.strategy);
     if (customNonceInput) customNonceInput.value = String(prefs.customNonce);

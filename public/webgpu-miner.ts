@@ -75,14 +75,63 @@ function applyStrategy(msg: { method?: number; customNonce?: number }): void {
     }
 }
 
-async function initWebGPU(): Promise<void> {
-    if (!navigator.gpu) {
-        throw new Error("WebGPU not supported on this browser.");
+/**
+ * Builds an explanation for a failed adapter request. "No adapter" usually
+ * isn't a browser-support problem - it's most often a Linux box where the
+ * browser has WebGPU but cannot reach a GPU through Vulkan, which the old
+ * catch-all "your browser may not support it" message actively misdiagnosed.
+ */
+function noAdapterHelp(): string {
+    const ua = navigator.userAgent;
+    const isLinux = /Linux/i.test(ua) && !/Android/i.test(ua);
+    const isFirefox = /Firefox/i.test(ua);
+
+    const lines = [
+        'WebGPU is available in this browser, but it could not find a usable GPU adapter.',
+        ''
+    ];
+
+    if (isLinux) {
+        lines.push(
+            'On Linux this is usually a driver or flag issue rather than missing hardware:',
+            '• WebGPU needs Vulkan - install your GPU\'s Vulkan driver (e.g. "sudo apt install mesa-vulkan-drivers", plus the vendor driver for NVIDIA).',
+            '• Verify Vulkan works outside the browser with "vulkaninfo" (from vulkan-tools).',
+        );
+        if (isFirefox) {
+            lines.push('• In Firefox, set dom.webgpu.enabled to true in about:config, then restart.');
+        } else {
+            lines.push(
+                '• In Chrome/Chromium, enable chrome://flags/#enable-unsafe-webgpu and restart, or launch with --enable-unsafe-webgpu.',
+                '• Check chrome://gpu - the "WebGPU" and "Vulkan" rows there say what was blocked and why.'
+            );
+        }
+        lines.push('• Headless/remote/VM sessions and software rendering (llvmpipe) often have no usable adapter at all.');
+    } else {
+        lines.push(
+            'Check that your GPU drivers are up to date, and that hardware acceleration is enabled in the browser settings.',
+            'In Chrome/Chromium, chrome://gpu shows whether WebGPU was blocklisted and why.'
+        );
     }
 
-    const adapter = await navigator.gpu.requestAdapter();
+    lines.push('', 'CPU mining still works - only GPU mining is unavailable.');
+    return lines.join('\n');
+}
+
+async function initWebGPU(): Promise<void> {
+    if (!navigator.gpu) {
+        throw new Error(
+            'This browser does not expose WebGPU at all (navigator.gpu is missing). ' +
+            'It needs a recent Chrome/Edge/Chromium, or Firefox with dom.webgpu.enabled. ' +
+            'CPU mining still works.'
+        );
+    }
+
+    // Ask for a discrete GPU first, then accept whatever is available -
+    // some systems only return an adapter for one of these.
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' })
+        || await navigator.gpu.requestAdapter();
     if (!adapter) {
-        throw new Error("No appropriate GPUAdapter found.");
+        throw new Error(noAdapterHelp());
     }
 
     wgMinerState.device = await adapter.requestDevice();
@@ -346,8 +395,9 @@ export async function startWebGPUMining(): Promise<void> {
             await initWebGPU();
             console.log("WebGPU Initialized!");
         } catch (e) {
-            console.error("WebGPU Init failed:", e);
-            alert("WebGPU failed to initialize. Your browser may not support it.");
+            const message = e instanceof Error ? e.message : String(e);
+            console.error("WebGPU Init failed:", message);
+            alert(message);
             return;
         }
     }

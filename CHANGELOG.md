@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.4 - 2026-09-28
+- WebGPU now explains why it could not start instead of blaming the browser - "no adapter" on Linux is usually a missing Vulkan driver or a disabled flag, so the message now gives the actual steps (mesa-vulkan-drivers, chrome://flags/#enable-unsafe-webgpu, chrome://gpu, dom.webgpu.enabled) and notes that CPU mining still works
+- Selecting the unimplemented Stratum V2 no longer leaves the server's pool config switched to it - the request is now rejected before anything is changed
+- An unsupported protocol is no longer saved as a preference, so it is not replayed and rejected on every page load; an already-stored one repairs itself to SV1
+- Opening or refreshing the dashboard no longer tears down and re-establishes the pool connection; the pool is only reconnected when the settings actually change
+- Server-sent events set X-Accel-Buffering and a reconnect delay, so the live stats stream behaves behind a reverse proxy
+
 ## 0.1.3 - 2026-09-28
 - The browser CPU and WebGPU miners now respect the selected mining strategy - previously they ignored the dropdown entirely and always used a random extranonce2, so only the Node CPU workers ever changed behaviour
 - Browser miners follow ALL_MODE's rotation in step with the server, and pick up strategy changes immediately instead of only on the next job
