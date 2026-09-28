@@ -63,7 +63,10 @@
                     <div class="miner-group">
                         <span class="miner-group-label" data-tooltip="Mining performed inside this browser tab using the Web Crypto SHA-256 API.">Browser CPU</span>
                         <button id="toggle-browser-mining" class="miner-btn" data-tooltip="Runs a real CPU miner inside THIS browser tab using the Web Crypto API's SHA-256. It builds a real Merkle root and can find real shares, but it is single-threaded and the async crypto API makes it far slower than the server miner.">Start Browser CPU Mining</button>
-                        <span class="control-note" data-tooltip="This miner runs as a single loop on the page's main thread, so the parallel worker setting does not apply to it. Expect roughly 20-30x less hashrate than one server worker.">Single-threaded, this tab only</span>
+                        <label class="control-label" data-tooltip="How many Web Worker threads mine inside this browser tab. Each gets its own slice of the nonce space, and they run off the main thread so the dashboard stays responsive. Defaults to one less than your CPU's core count.">
+                            <span>Browser worker threads</span>
+                            <select id="browser-workers-select" class="control-input"></select>
+                        </label>
                     </div>
 
                     <div class="miner-group">

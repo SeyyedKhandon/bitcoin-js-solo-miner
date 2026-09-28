@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.7 - 2026-09-28
+- Browser CPU mining now runs on real Web Worker threads with a synchronous SHA-256 instead of one awaited crypto.subtle call per hash on the main thread. Measured on the same machine: 22,402 H/s before, 893,333 H/s on a single worker and 5,700,000 H/s on eight
+- Added a browser worker-thread count selector, defaulting to one less than the CPU's core count so the page stays responsive
+- GPU intensity is now a genuine duty cycle: the loop measures how long each dispatch took and idles proportionally, so at 25/50/70% the GPU really is idle for the rest of each cycle. Previously it only shrank the batch, which reduced throughput but did not cap utilisation
+
 ## 0.1.6 - 2026-09-28
 - Fixed the dashboard keeping the GPU busy even with every miner stopped: the background was three 50-60vw elements under a 100px blur running an infinite animation, and because each glass panel sits on top with backdrop-filter, the moving backdrop forced every panel to re-blur as well. The page now composites ~5 times per 5s while idle instead of ~143
 - The background is now static gradients with the same look, and the header's pulse only animates while something is actually mining, honouring prefers-reduced-motion

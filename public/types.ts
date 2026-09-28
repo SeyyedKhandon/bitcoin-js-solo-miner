@@ -18,6 +18,8 @@ declare global {
   interface Window {
     startBrowserMining: () => void;
     stopBrowserMining: () => void;
+    setBrowserWorkerCount: (count: number) => void;
+    getBrowserWorkerCount: () => number;
     startWebGPUMining: () => Promise<void>;
     setWebGPUIntensity: (pct: number) => void;
     stopWebGPUMining: () => void;

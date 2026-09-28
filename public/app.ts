@@ -101,6 +101,7 @@ interface StoredPreferences {
     strategy: number;
     customNonce: number;
     gpuIntensity: number;
+    browserWorkers: number;
 }
 
 const PREFERENCES_KEY = 'bitcoinJsSoloMiner.preferences';
@@ -118,6 +119,8 @@ const DEFAULT_PREFERENCES: StoredPreferences = {
     // Half the GPU by default, so starting the GPU miner doesn't make the
     // machine feel unusable before the user has touched anything.
     gpuIntensity: 50,
+    // 0 means "pick a sensible default from the CPU's core count".
+    browserWorkers: 0,
 };
 
 function loadPreferences(): StoredPreferences {
@@ -472,6 +475,22 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    const browserWorkersSelect = document.getElementById('browser-workers-select') as HTMLSelectElement | null;
+    if (browserWorkersSelect) {
+        const cores = navigator.hardwareConcurrency || 4;
+        const choices = Array.from(new Set([1, 2, 4, 6, 8, 12, 16, cores, Math.max(1, cores - 1)]))
+            .filter((n) => n >= 1 && n <= 32)
+            .sort((a, b) => a - b);
+        browserWorkersSelect.innerHTML = choices
+            .map((n) => `<option value="${n}">${n} worker${n > 1 ? 's' : ''}${n === cores ? ' (all cores)' : ''}</option>`)
+            .join('');
+        browserWorkersSelect.addEventListener('change', (e) => {
+            const n = parseInt((e.target as HTMLSelectElement).value, 10);
+            savePreference('browserWorkers', n);
+            window.setBrowserWorkerCount(n);
+        });
+    }
+
     const gpuIntensitySelect = document.getElementById('gpu-intensity-select') as HTMLSelectElement | null;
     if (gpuIntensitySelect) {
         gpuIntensitySelect.addEventListener('change', (e) => {
@@ -549,6 +568,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (els.protocolSelect) els.protocolSelect.value = 'SV1';
         setProtocol('SV1', true);
     });
+
+    const workerPref = prefs.browserWorkers || window.getBrowserWorkerCount();
+    if (browserWorkersSelect) browserWorkersSelect.value = String(workerPref);
+    window.setBrowserWorkerCount(workerPref);
 
     if (gpuIntensitySelect) gpuIntensitySelect.value = String(prefs.gpuIntensity);
     window.setWebGPUIntensity(prefs.gpuIntensity);

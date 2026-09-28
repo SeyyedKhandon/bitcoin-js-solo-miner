@@ -77,6 +77,26 @@ const wgMinerState: WebGPUMinerState = {
     intensityPct: 50
 };
 
+/**
+ * Paces the next dispatch so the GPU genuinely idles between batches.
+ *
+ * Shrinking the batch alone is not a real utilisation limit: the loop still
+ * submits work every frame, so a card that can finish a small batch quickly
+ * just goes back to being busy immediately. Idling for a measured share of
+ * each cycle is what actually caps utilisation - at P%, work for T ms then
+ * stay idle for T * (100 - P) / P ms, giving a ~P% duty cycle whatever the
+ * card's speed.
+ */
+function scheduleNextDispatch(lastDispatchMs: number): void {
+    const pct = wgMinerState.intensityPct;
+    if (pct >= 100) {
+        requestAnimationFrame(mineWebGPULoop);
+        return;
+    }
+    const idleMs = Math.min(1000, lastDispatchMs * (100 - pct) / pct);
+    setTimeout(mineWebGPULoop, Math.max(0, Math.round(idleMs)));
+}
+
 /** Sets how hard the GPU is driven. Takes effect on the next dispatch. */
 export function setWebGPUIntensity(pct: number): void {
     if (!Number.isFinite(pct)) return;
@@ -243,6 +263,7 @@ async function mineWebGPULoop(): Promise<void> {
     try {
         if (!wgMinerState.isMining || !wgMinerState.job || !wgMinerState.device || wgMinerState.isHashing) return;
         wgMinerState.isHashing = true;
+        const dispatchStartedAt = performance.now();
 
         const device = wgMinerState.device;
         const job = wgMinerState.job;
@@ -407,7 +428,7 @@ async function mineWebGPULoop(): Promise<void> {
 
         wgMinerState.isHashing = false;
         if (wgMinerState.isMining) {
-            requestAnimationFrame(mineWebGPULoop);
+            scheduleNextDispatch(performance.now() - dispatchStartedAt);
         }
     } catch(e) {
         // Stopping tears down the device and buffers, so a dispatch that was

@@ -1,47 +1,141 @@
-import { calculateMerkleRoot, buildHeaderBase, bytesToHex } from './bitcoin.js';
-import { MiningMethod, getExtranonce2, getStartNonce, isRandomMethod, methodName, resolveMethod } from './strategies.js';
+// Coordinates a pool of Web Worker mining threads (browser-worker.ts) and
+// reports their combined progress to the server over the WebSocket.
+//
+// This used to hash on the page's main thread through crypto.subtle, one
+// awaited digest at a time, which capped out around 22k H/s. The workers use
+// a synchronous SHA-256 and run in parallel, so the browser miner now scales
+// with the machine instead of with promise-scheduling overhead.
+import { MiningMethod, methodName, resolveMethod } from './strategies.js';
 import type { BrowserJob } from './types.js';
 
 interface MinerState {
     isMining: boolean;
     job: BrowserJob | null;
     ws: WebSocket | null;
-    hashCount: number;
-    /** Strategy pushed by the server (ALL_MODE already resolved). */
+    workers: Worker[];
+    workerCount: number;
     method: number;
     customNonce: number;
-    /** This miner's own extranonce2 counter, for the counter-based strategies. */
-    extranonce2Counter: number;
-    /** Where the next batch resumes for the sequential strategies. */
-    nextNonce: number | null;
-    /** Whether a mineLoop chain is already running (see startLoop). */
-    loopRunning: boolean;
+    /** Hashes completed since the last report to the server. */
+    pendingCount: number;
+    /** Best hash seen since the last report, and its metadata. */
+    bestHash: string | null;
+    bestNonce: string;
+    bestExtranonce2: string;
+    bestMethod: number;
+    reportTimer: number | null;
 }
 
 const minerState: MinerState = {
     isMining: false,
     job: null,
     ws: null,
-    hashCount: 0,
+    workers: [],
+    workerCount: defaultWorkerCount(),
     method: MiningMethod.STANDARD,
     customNonce: 0,
-    extranonce2Counter: 0,
-    nextNonce: null,
-    loopRunning: false,
+    pendingCount: 0,
+    bestHash: null,
+    bestNonce: '',
+    bestExtranonce2: '',
+    bestMethod: MiningMethod.STANDARD,
+    reportTimer: null,
 };
 
-function hexToBytes(hex: string): Uint8Array {
-    const bytes = new Uint8Array(hex.length / 2);
-    for (let i = 0; i < bytes.length; i++) {
-        bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
-    }
-    return bytes;
+function defaultWorkerCount(): number {
+    // Leave a core for the page itself so the dashboard stays responsive.
+    const cores = navigator.hardwareConcurrency || 4;
+    return Math.max(1, Math.min(8, cores - 1));
 }
 
-async function doubleSha256(buffer: Uint8Array): Promise<Uint8Array> {
-    const hash1 = await crypto.subtle.digest('SHA-256', buffer as BufferSource);
-    const hash2 = await crypto.subtle.digest('SHA-256', hash1);
-    return new Uint8Array(hash2);
+export function getBrowserWorkerCount(): number {
+    return minerState.workerCount;
+}
+
+/** Changes the pool size; restarts the pool if mining is already running. */
+export function setBrowserWorkerCount(count: number): void {
+    const next = Math.max(1, Math.min(32, Math.floor(count) || 1));
+    if (next === minerState.workerCount) return;
+    minerState.workerCount = next;
+    console.log(`Browser CPU miner -> ${next} worker${next > 1 ? 's' : ''}`);
+    if (minerState.isMining) {
+        terminateWorkers();
+        spawnWorkers();
+        dispatchWork();
+    }
+}
+
+function terminateWorkers(): void {
+    for (const worker of minerState.workers) {
+        worker.postMessage({ type: 'stop' });
+        worker.terminate();
+    }
+    minerState.workers = [];
+}
+
+function spawnWorkers(): void {
+    for (let i = 0; i < minerState.workerCount; i++) {
+        const worker = new Worker(new URL('./browser-worker.js', import.meta.url), { type: 'module' });
+        worker.onmessage = (event: MessageEvent) => handleWorkerMessage(event.data);
+        worker.onerror = (e) => console.error('Browser mining worker error:', e.message);
+        minerState.workers.push(worker);
+    }
+}
+
+function handleWorkerMessage(msg: any): void {
+    if (msg.type === 'progress') {
+        minerState.pendingCount += msg.count;
+        // Keep the single best hash across all workers for this report window.
+        if (msg.bestHash && (minerState.bestHash === null || msg.bestHash < minerState.bestHash)) {
+            minerState.bestHash = msg.bestHash;
+            minerState.bestNonce = msg.bestNonce;
+            minerState.bestExtranonce2 = msg.extranonce2;
+            minerState.bestMethod = msg.method;
+        }
+    } else if (msg.type === 'share') {
+        if (minerState.ws && minerState.ws.readyState === WebSocket.OPEN) {
+            minerState.ws.send(JSON.stringify({ type: 'share', source: 'browser-cpu', shareInfo: msg.shareInfo }));
+        }
+    }
+}
+
+function dispatchWork(): void {
+    if (!minerState.job) return;
+    minerState.workers.forEach((worker, index) => {
+        worker.postMessage({
+            type: 'work',
+            job: minerState.job,
+            method: minerState.method,
+            customNonce: minerState.customNonce,
+            workerId: index,
+            totalWorkers: minerState.workers.length,
+        });
+    });
+}
+
+/**
+ * Reports combined progress once a second rather than per batch, so a large
+ * worker pool doesn't flood the socket.
+ */
+function report(): void {
+    const job = minerState.job;
+    if (!job || minerState.pendingCount === 0) return;
+    if (!minerState.ws || minerState.ws.readyState !== WebSocket.OPEN) return;
+
+    minerState.ws.send(JSON.stringify({
+        type: 'hashrate',
+        source: 'browser-cpu',
+        count: minerState.pendingCount,
+        latestHash: minerState.bestHash,
+        version: job.version,
+        en1: job.extranonce1,
+        en2: minerState.bestExtranonce2,
+        nonce: minerState.bestNonce,
+        method: `${methodName(resolveMethod(minerState.bestMethod))} × ${minerState.workers.length}`,
+    }));
+
+    minerState.pendingCount = 0;
+    minerState.bestHash = null;
 }
 
 /** Adopts a strategy pushed by the server (ALL_MODE already resolved). */
@@ -52,125 +146,16 @@ function applyStrategy(msg: { method?: number; customNonce?: number }): void {
     minerState.customNonce = msg.customNonce ?? 0;
     if (changed) {
         console.log('Browser CPU miner strategy ->', methodName(resolveMethod(msg.method)));
-        minerState.nextNonce = null; // re-derive the start nonce for the new strategy
-    }
-}
-
-/**
- * Starts the mining loop unless one is already running. mineLoop re-arms
- * itself, so calling it directly on every incoming job (as the job handler
- * used to) left the previous chain running and started another alongside
- * it - each new job permanently multiplied CPU use and memory.
- */
-function startLoop(): void {
-    if (minerState.loopRunning) return;
-    minerState.loopRunning = true;
-    mineLoop();
-}
-
-async function mineLoop(): Promise<void> {
-    if (!minerState.isMining || !minerState.job) {
-        minerState.loopRunning = false;
-        return;
-    }
-
-    const job = minerState.job;
-
-    const method = resolveMethod(minerState.method);
-    const extranonce2 = getExtranonce2(method, job.extranonce2_size, minerState.extranonce2Counter);
-
-    // Real Merkle root and real header, built the same verified way the
-    // server-side worker does it - see mining/worker.ts.
-    const merkleRoot = await calculateMerkleRoot(job.coinb1, job.extranonce1, extranonce2, job.coinb2, job.merkle_branch);
-    const headerBase = buildHeaderBase(job.version, job.prevhash, bytesToHex(merkleRoot), job.ntime, job.nbits);
-
-    const header = new Uint8Array(80);
-    header.set(headerBase, 0);
-
-    const target = job.target ? BigInt(`0x${job.target}`) : null;
-    // The random strategies re-pick a starting point every batch; the
-    // sequential ones sweep onward from where the last batch stopped, so
-    // they aren't restarted every 100 hashes.
-    const resumeNonce = !isRandomMethod(method) && minerState.nextNonce !== null;
-    let nonce = resumeNonce ? minerState.nextNonce! : getStartNonce(method, minerState.customNonce);
-    // Reports the best (lowest-value) hash seen this batch, not just the
-    // last nonce tried - otherwise the Best Hash display only ever sampled
-    // 1-in-100 arbitrary hashes instead of the actual best one found.
-    let latestHash: string | null = null;
-    let latestNonce = nonce;
-    let bestHashBigInt: bigint | null = null;
-
-    for (let i = 0; i < 100; i++) {
-        if (!minerState.isMining) break;
-
-        header[76] = (nonce >>> 24) & 0xFF;
-        header[77] = (nonce >>> 16) & 0xFF;
-        header[78] = (nonce >>> 8) & 0xFF;
-        header[79] = nonce & 0xFF;
-
-        const resultBytes = await doubleSha256(header);
-        const hashHex = bytesToHex(resultBytes.slice().reverse());
-        const hashBigInt = BigInt(`0x${hashHex}`);
-        if (bestHashBigInt === null || hashBigInt < bestHashBigInt) {
-            bestHashBigInt = hashBigInt;
-            latestHash = hashHex;
-            latestNonce = nonce;
+        for (const worker of minerState.workers) {
+            worker.postMessage({ type: 'strategy', method: minerState.method, customNonce: minerState.customNonce });
         }
-
-        if (target !== null && hashBigInt <= target) {
-            const nonceBuffer = new Uint8Array(4);
-            nonceBuffer[0] = (nonce >>> 24) & 0xFF;
-            nonceBuffer[1] = (nonce >>> 16) & 0xFF;
-            nonceBuffer[2] = (nonce >>> 8) & 0xFF;
-            nonceBuffer[3] = nonce & 0xFF;
-
-            if (minerState.ws && minerState.ws.readyState === WebSocket.OPEN) {
-                minerState.ws.send(JSON.stringify({
-                    type: 'share',
-                    source: 'browser-cpu',
-                    shareInfo: {
-                        jobId: job.jobId,
-                        extranonce2,
-                        ntime: job.ntime,
-                        nonce: bytesToHex(nonceBuffer),
-                        hash: hashHex
-                    }
-                }));
-            }
-        }
-
-        minerState.hashCount++;
-        nonce = (nonce + 1) >>> 0;
-        // Rolling past the end of the nonce space means this extranonce2 is
-        // exhausted - advance it, as the server worker does.
-        if (nonce === 0) minerState.extranonce2Counter++;
     }
-    minerState.nextNonce = nonce;
-
-    if (minerState.ws && minerState.ws.readyState === WebSocket.OPEN) {
-        minerState.ws.send(JSON.stringify({
-            type: 'hashrate',
-            source: 'browser-cpu',
-            count: 100,
-            latestHash,
-            version: job.version,
-            en1: job.extranonce1,
-            en2: extranonce2,
-            nonce: (latestNonce >>> 0).toString(16).padStart(8, '0'),
-            method: methodName(method)
-        }));
-    }
-
-    if (!minerState.isMining) {
-        minerState.loopRunning = false;
-        return;
-    }
-    setTimeout(mineLoop, 0);
 }
 
 function startBrowserMining(): void {
     if (minerState.isMining) return;
     minerState.isMining = true;
+    spawnWorkers();
 
     minerState.ws = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`);
 
@@ -178,39 +163,44 @@ function startBrowserMining(): void {
         try {
             const msg = JSON.parse(event.data);
             if (msg.type === 'job') {
-                console.log("Browser miner received new job:", msg.job.jobId);
+                console.log('Browser miner received new job:', msg.job.jobId);
                 minerState.job = msg.job;
                 applyStrategy(msg);
-                // A new job means a new coinbase, so restart the sweep.
-                minerState.nextNonce = null;
-                minerState.extranonce2Counter = 0;
-                if (minerState.isMining) {
-                    startLoop();
-                }
+                if (minerState.isMining) dispatchWork();
             } else if (msg.type === 'strategy') {
                 applyStrategy(msg);
             }
-        } catch(e) {
-            console.error("WS error:", e);
+        } catch (e) {
+            console.error('WS error:', e);
         }
     };
 
     minerState.ws.onopen = () => {
-        console.log("Browser miner connected to Stratum proxy.");
+        console.log('Browser miner connected to Stratum proxy.');
         minerState.ws!.send(JSON.stringify({ type: 'hello', source: 'browser-cpu' }));
     };
 
-    console.log("Browser mining started.");
+    minerState.reportTimer = window.setInterval(report, 1000);
+    console.log(`Browser mining started on ${minerState.workerCount} worker(s).`);
 }
 
 function stopBrowserMining(): void {
     minerState.isMining = false;
+    terminateWorkers();
+    if (minerState.reportTimer !== null) {
+        clearInterval(minerState.reportTimer);
+        minerState.reportTimer = null;
+    }
     if (minerState.ws) {
         minerState.ws.close();
         minerState.ws = null;
     }
-    console.log("Browser mining stopped.");
+    minerState.pendingCount = 0;
+    minerState.bestHash = null;
+    console.log('Browser mining stopped.');
 }
 
 window.startBrowserMining = startBrowserMining;
 window.stopBrowserMining = stopBrowserMining;
+window.setBrowserWorkerCount = setBrowserWorkerCount;
+window.getBrowserWorkerCount = getBrowserWorkerCount;
